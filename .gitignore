@@ -1,0 +1,22 @@
+# Datos crudos y descargas
+raw/
+*.part
+
+# Salidas grandes: se transportan por rsync, no por git
+results/cells_*.csv
+results/*.log
+results/parts/
+results/figures/*.png
+
+# Basura de Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Spark / YARN
+spark-warehouse/
+metastore_db/
+derby.log
+eventlogs/

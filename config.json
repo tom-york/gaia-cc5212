@@ -1,0 +1,41 @@
+{
+  "dataset": {
+    "repo": "UniverseTBD/mmu_gaia_gaia",
+    "partition": "Norder=4/Dir=0",
+    "url_api": "https://huggingface.co/api/datasets/UniverseTBD/mmu_gaia_gaia/tree/main/mmu_gaia_gaia/dataset/Norder%3D4/Dir%3D0",
+    "url_resolve": "https://huggingface.co/datasets/UniverseTBD/mmu_gaia_gaia/resolve/main/"
+  },
+  "hdfs": {
+    "uri": "hdfs://cm:9000",
+    "project": "/data/2026/uhadoop/teatime/gaia",
+    "merged": "/data/2026/uhadoop/teatime/gaia/gaia_mmu_merged.parquet",
+    "cells": "/data/2026/uhadoop/teatime/gaia/resultado_celdas"
+  },
+  "local": {
+    "raw": "raw",
+    "results": "results"
+  },
+  "download": {
+    "workers": 6
+  },
+  "spark": {
+    "parts": 32,
+    "shuffle_partitions": 32
+  },
+  "binning": {
+    "resolutions_deg": [0.5, 0.25],
+    "verify_res_deg": 0.25
+  },
+  "thresholds": {
+    "methods": ["mu3sigma", "p99"],
+    "mu3sigma_k": 3.0,
+    "percentile": 0.99
+  },
+  "kinematics": {
+    "abs_pm_max": 3.0,
+    "rel_neighbors": 8,
+    "rel_factor": 0.6,
+    "parallax_rel_disp_max": 0.5,
+    "min_stars": 20
+  }
+}
