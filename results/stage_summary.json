@@ -1,0 +1,266 @@
+{
+  "generated_at": "2026-11-14T05:19:27",
+  "spark_version": "3.3.2",
+  "master": "yarn",
+  "dataset": {
+    "repo": "UniverseTBD/mmu_gaia_gaia",
+    "partition": "Norder=4/Dir=0",
+    "url_api": "https://huggingface.co/api/datasets/UniverseTBD/mmu_gaia_gaia/tree/main/mmu_gaia_gaia/dataset/Norder%3D4/Dir%3D0",
+    "url_resolve": "https://huggingface.co/datasets/UniverseTBD/mmu_gaia_gaia/resolve/main/"
+  },
+  "schema": {
+    "object_id": "bigint",
+    "ra": "double",
+    "dec": "double",
+    "parallax": "float",
+    "parallax_error": "float",
+    "pmra": "float",
+    "pmra_error": "float",
+    "pmdec": "float",
+    "pmdec_error": "float",
+    "phot_g_mean_mag": "float",
+    "bp_rp": "float"
+  },
+  "float_columns": [
+    "ra",
+    "dec",
+    "parallax",
+    "parallax_error",
+    "pmra",
+    "pmra_error",
+    "pmdec",
+    "pmdec_error",
+    "phot_g_mean_mag",
+    "bp_rp"
+  ],
+  "input": {
+    "rows": 1336195,
+    "n_tiles": 263,
+    "null__object_id": 0,
+    "null__ra": 0,
+    "null__dec": 0,
+    "null__parallax": 0,
+    "null__parallax_error": 0,
+    "null__pmra": 0,
+    "null__pmra_error": 0,
+    "null__pmdec": 0,
+    "null__pmdec_error": 0,
+    "null__phot_g_mean_mag": 0,
+    "null__bp_rp": 0,
+    "nan__ra": 0,
+    "nan__dec": 0,
+    "nan__parallax": 7161,
+    "nan__parallax_error": 7161,
+    "nan__pmra": 7161,
+    "nan__pmra_error": 7161,
+    "nan__pmdec": 7161,
+    "nan__pmdec_error": 7161,
+    "nan__phot_g_mean_mag": 7,
+    "nan__bp_rp": 7
+  },
+  "output": {
+    "uri": "hdfs://cm:9000/data/2026/uhadoop/teatime/gaia/gaia_mmu_merged.parquet",
+    "parts": 32,
+    "rows": 1336195,
+    "distinct_object_id": 1336195,
+    "duplicated_rows": 0,
+    "ra_min": 8.88021305510004e-05,
+    "ra_max": 359.99992632546446,
+    "ra_wrapped": 0
+  },
+  "filter": {
+    "rule": "ra, dec, pmra, pmdec no nulos; parallax no nulo y > 0 (NaN ya es null)",
+    "rows_after_filter": 1310721,
+    "rows_dropped": 25474
+  },
+  "cells": {
+    "res_deg": 0.25,
+    "n_cells": 54417,
+    "top_by_count": [
+      {
+        "source_tile": 1909,
+        "ci": 1207,
+        "cj": 37,
+        "count": 847
+      },
+      {
+        "source_tile": 1909,
+        "ci": 1206,
+        "cj": 37,
+        "count": 805
+      },
+      {
+        "source_tile": 1909,
+        "ci": 1206,
+        "cj": 36,
+        "count": 688
+      },
+      {
+        "source_tile": 1381,
+        "ci": 439,
+        "cj": -9,
+        "count": 589
+      },
+      {
+        "source_tile": 1381,
+        "ci": 438,
+        "cj": -9,
+        "count": 560
+      },
+      {
+        "source_tile": 1909,
+        "ci": 1208,
+        "cj": 38,
+        "count": 556
+      },
+      {
+        "source_tile": 1381,
+        "ci": 438,
+        "cj": -8,
+        "count": 555
+      },
+      {
+        "source_tile": 1381,
+        "ci": 437,
+        "cj": -8,
+        "count": 549
+      },
+      {
+        "source_tile": 967,
+        "ci": 1290,
+        "cj": 219,
+        "count": 498
+      },
+      {
+        "source_tile": 2704,
+        "ci": 842,
+        "cj": -208,
+        "count": 496
+      }
+    ],
+    "tiles_by_max_cell": [
+      {
+        "source_tile": 1909,
+        "rows": 5450,
+        "max_cell": 847
+      },
+      {
+        "source_tile": 1381,
+        "rows": 5386,
+        "max_cell": 589
+      },
+      {
+        "source_tile": 967,
+        "rows": 6243,
+        "max_cell": 498
+      },
+      {
+        "source_tile": 2704,
+        "rows": 7125,
+        "max_cell": 496
+      },
+      {
+        "source_tile": 2386,
+        "rows": 4236,
+        "max_cell": 409
+      },
+      {
+        "source_tile": 884,
+        "rows": 7038,
+        "max_cell": 387
+      },
+      {
+        "source_tile": 783,
+        "rows": 6017,
+        "max_cell": 372
+      },
+      {
+        "source_tile": 984,
+        "rows": 5417,
+        "max_cell": 262
+      },
+      {
+        "source_tile": 1972,
+        "rows": 7089,
+        "max_cell": 224
+      },
+      {
+        "source_tile": 1504,
+        "rows": 2987,
+        "max_cell": 219
+      }
+    ]
+  },
+  "tiles": {
+    "n": 263,
+    "top_by_rows": [
+      {
+        "source_tile": 765,
+        "rows": 8172,
+        "uniq": 8172
+      },
+      {
+        "source_tile": 1703,
+        "rows": 8169,
+        "uniq": 8169
+      },
+      {
+        "source_tile": 32,
+        "rows": 8164,
+        "uniq": 8164
+      },
+      {
+        "source_tile": 1440,
+        "rows": 8152,
+        "uniq": 8152
+      },
+      {
+        "source_tile": 553,
+        "rows": 8135,
+        "uniq": 8135
+      },
+      {
+        "source_tile": 1191,
+        "rows": 8122,
+        "uniq": 8122
+      },
+      {
+        "source_tile": 1961,
+        "rows": 8114,
+        "uniq": 8114
+      },
+      {
+        "source_tile": 1443,
+        "rows": 8074,
+        "uniq": 8074
+      },
+      {
+        "source_tile": 1091,
+        "rows": 8064,
+        "uniq": 8064
+      },
+      {
+        "source_tile": 11,
+        "rows": 8059,
+        "uniq": 8059
+      }
+    ]
+  },
+  "quality": {
+    "rows_with_error": 1310721,
+    "rows_snr_ge_5": 1132223,
+    "rows_snr_ge_10": 913727,
+    "mean_parallax_error": 0.06078955084187555,
+    "snr_percentiles": {
+      "p10": 3.8648837715960402,
+      "p50": 19.12231095462911,
+      "p90": 97.03372618341436
+    }
+  },
+  "timings_s": {
+    "read_and_clean": 97.3,
+    "write": 29.7,
+    "verify": 30.9,
+    "total": 157.9
+  }
+}

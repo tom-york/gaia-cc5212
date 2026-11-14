@@ -16,7 +16,7 @@ Entrega: informe de 5–6 páginas, presentación de 8 minutos y este repositori
 | Dataset | `UniverseTBD/mmu_gaia_gaia` (Hugging Face) |
 | Partición | `Norder=4/Dir=0`: 263 archivos Parquet |
 | Tamaño | 1.800.261.960 B ≈ 1,68 GiB (verificado contra la API de HF) |
-| Filas | reportadas por el análisis previo: 1.411.004 — **la fuente de verdad es `results/stage_summary.json`** |
+| Filas | **1.336.195** medidas, con `object_id` único (0 duplicadas); ver `docs/hallazgos.md` H-02 |
 | Columnas usadas | `object_id`, `ra`, `dec`, `astrometry.parallax`, `astrometry.parallax_error`, `astrometry.pmra`, `astrometry.pmra_error`, `astrometry.pmdec`, `astrometry.pmdec_error`, `photometry.phot_g_mean_mag`, `photometry.bp_rp` |
 | Columna derivada | `source_tile` = `Npix` del nombre de archivo (baldosa HEALPix de origen) |
 
@@ -28,6 +28,17 @@ decidir si una celda "viaja junta" o solo está lejos.
 
 `Norder` es el orden HEALPix de la baldosa a la que corresponde cada archivo: a mayor
 orden, baldosa más pequeña. `Dir` es solo una carpeta para agrupar archivos.
+
+## Hallazgos
+
+Lo verificado sobre el dataset y el clúster vive en [`docs/hallazgos.md`](docs/hallazgos.md),
+con el número medido, su origen y su implicancia para el informe. Titulares:
+
+- 1.336.195 filas, cero duplicados; el conteo previo (1.411.004) no se reproduce (H-02, H-11).
+- 7.161 filas tienen `NaN` —no `null`— en los seis campos astrométricos, y `NaN > 0`
+  es verdadero en Spark: sin filtrar `isnan()` se envenenan las agregaciones (H-03).
+- El máximo real por celda de 0,25° es 847 estrellas, no las 5.738 del análisis previo (H-05).
+- La partición cubre 8,6 % del cielo, no todo el cielo (H-06).
 
 ## Entorno del clúster
 
@@ -56,6 +67,7 @@ src/figures.py            (pendiente) mapas y diagramas
 scripts/yarn_env.sh       flags de spark-submit validados en el clúster
 scripts/stage_data.sh     preflight + descarga + unificación + HDFS
 scripts/run_experiments.sh (pendiente) 4 configuraciones y tiempos
+docs/hallazgos.md         bitácora de hallazgos con evidencia y pendientes
 results/                  resúmenes JSON, tablas CSV y tiempos
 raw/                      parquet crudos (no versionado)
 ```
@@ -88,11 +100,10 @@ rsync -av -e 'ssh -p 220' \
 
 ## Decisiones de diseño
 
-- **NaN no es null.** En este dataset los faltantes de `parallax` vienen como `NaN`.
-  En Spark `isNotNull()` no los detecta y `NaN > 0` es **verdadero**, así que un filtro
-  `parallax > 0` deja pasar basura y `1000/parallax`, `avg` y `stddev` propagan `NaN`
-  en silencio. `src/stage.py` cuenta nulos y NaN por columna antes de limpiar y
-  convierte `NaN → null` en las columnas float.
+- **NaN no es null.** Los faltantes astrométricos vienen como `NaN` y Spark los deja
+  pasar por `isNotNull()` y por `parallax > 0`. `src/stage.py` cuenta nulos y NaN por
+  columna antes de limpiar y convierte `NaN → null` en las columnas float (magnitud del
+  problema en H-03: 7.161 filas).
 - **`source_tile`.** Se conserva la baldosa de origen de cada estrella para poder
   auditar las celdas más densas (¿cuántas filas tiene esa baldosa?) y detectar
   duplicados entre archivos.
@@ -120,9 +131,10 @@ rsync -av -e 'ssh -p 220' \
 
 ## Estado
 
-- [x] Staging: descarga, PUT a HDFS con replicación 1, unificación distribuida en YARN
-      con `source_tile` y los 3 errores astrométricos, contabilidad de nulos/NaN y test
-      de duplicados y celdas por baldosa.
+- [x] Staging (2026-11-14): descarga, PUT a HDFS con replicación 1, unificación
+      distribuida en YARN con `source_tile` y los 3 errores astrométricos, contabilidad
+      de nulos/NaN y test de duplicados y celdas por baldosa. Resultado en
+      `results/stage_summary.json`; lectura en `docs/hallazgos.md`.
 - [ ] Pipeline: celdas por resolución, umbrales μ+3σ y percentil 99, criterio
       cinemático relativo, fusión de celdas contiguas.
 - [ ] Experimentos: 4 configuraciones × mitigación de skew, con tiempos.
