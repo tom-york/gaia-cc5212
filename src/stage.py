@@ -18,6 +18,10 @@ Hace, en este orden:
 
 Uso:
     spark-submit src/stage.py --config config.json [--raw-uri hdfs://...] [--parts 32]
+    spark-submit src/stage.py --config config.json --print-schema   # diagnóstico
+
+Ojo: el Parquet trae structs (`astrometry`, `photometry`) y no nombres planos
+con punto; las columnas se resuelven con `field()` (getField).
 """
 
 import argparse
@@ -30,6 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import dump_json, hdfs_uri, load_config, log, plain, resolve  # noqa: E402
 from pyspark.sql import SparkSession  # noqa: E402
 from pyspark.sql import functions as F  # noqa: E402
+from pyspark.sql.utils import AnalysisException  # noqa: E402
 
 # Columnas de la propuesta + errores astrométricos. El nombre a la izquierda es
 # el del dataset (columnas anidadas aplanadas con punto) y a la derecha el alias
@@ -52,11 +57,28 @@ KEEP = list(COLS.values())
 OUT_COLS = KEEP + ["source_tile"]
 
 
+def field(path):
+    """Accede a un campo del Parquet crudo, incluyendo structs anidados.
+
+    El dataset trae structs (`astrometry`, `photometry`) en vez de nombres
+    planos con punto, que es como los muestra pandas. Se usa `getField` en
+    lugar de `col("astrometry.parallax")` para que el error, si el campo no
+    existe, sea explícito.
+    """
+    parts = path.split(".")
+    col = F.col(parts[0])
+    for part in parts[1:]:
+        col = col.getField(part)
+    return col
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config.json")
     ap.add_argument("--raw-uri", help="ruta HDFS de los parquet crudos; sobreescribe config")
     ap.add_argument("--parts", type=int, help="particiones de salida (default: config)")
+    ap.add_argument("--print-schema", action="store_true",
+                    help="imprime el esquema crudo y termina (diagnóstico)")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -78,20 +100,37 @@ def main():
 
     # ---------------------------------------------------------------- lectura
     raw = spark.read.parquet(raw_dir)
-    missing = sorted(set(COLS) - set(raw.columns))
+    log("leídos {} archivos, {} columnas de primer nivel".format(
+        len(raw.inputFiles()), len(raw.columns)))
+
+    if args.print_schema:
+        raw.printSchema()
+        log("columnas de primer nivel: {}".format(sorted(raw.columns)))
+        return 0
+
+    # Los nombres del dataset son rutas dentro de structs: se valida el primer
+    # nivel y se resuelve el resto con getField (ver `field`).
+    missing = sorted({src.split(".")[0] for src in COLS} - set(raw.columns))
     if missing:
         raise SystemExit(
-            "faltan columnas en el parquet crudo: {}\ncolumnas disponibles: {}".format(
+            "faltan structs/columnas en el parquet crudo: {}\n"
+            "columnas de primer nivel: {}\n"
+            "corre --print-schema para ver la estructura completa".format(
                 missing, sorted(raw.columns)
             )
         )
-    log("leídos {} archivos, {} columnas en el esquema crudo".format(
-        len(raw.inputFiles()), len(raw.columns)))
 
-    base = raw.select(
-        *[F.col(src).alias(dst) for src, dst in COLS.items()],
-        F.regexp_extract(F.input_file_name(), r"Npix=(\d+)", 1).cast("int").alias("source_tile"),
-    )
+    try:
+        base = raw.select(
+            *[field(src).alias(dst) for src, dst in COLS.items()],
+            F.regexp_extract(F.input_file_name(), r"Npix=(\d+)", 1)
+            .cast("int").alias("source_tile"),
+        )
+    except AnalysisException as exc:
+        raise SystemExit(
+            "no pude resolver las columnas pedidas dentro del esquema: {}\n"
+            "corre --print-schema para ver la estructura completa".format(exc)
+        )
 
     dtypes = dict(base.dtypes)
     float_cols = [c for c in KEEP if dtypes[c] in ("float", "double")]

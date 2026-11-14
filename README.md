@@ -108,6 +108,10 @@ rsync -av -e 'ssh -p 220' \
   en `scripts/yarn_env.sh`): 1536m de memoria por executor y por AM, 512 de overhead,
   `-XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -Xss512k`.
   No era el conector Cassandra; igual se usa `--conf spark.jars.packages=` vacío.
+- **Structs, no nombres planos.** El Parquet trae `astrometry`, `photometry` y
+  `spectral_coefficients` como structs anidados; pandas los aplana como
+  `astrometry.parallax`, Spark no. `src/stage.py` los resuelve con `getField` y
+  ofrece `--print-schema` para inspeccionar la estructura sin correr el pipeline.
 - **`config.json`, no YAML.** PyYAML no está garantizado en el clúster.
 - **Ruta HDFS corregida.** El plan original usaba `/uhadoop2026/projects/grupo3`;
   la raíz real del proyecto es `/data/2026/uhadoop/teatime/gaia`.
