@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Staging de datos: descarga Norder=4/Dir=0, unifica y deja el Parquet en HDFS.
+# Staging de datos: descarga Norder=4/Dir=0, sube los crudos a HDFS, los unifica
+# con Spark en YARN y deja el Parquet de 12 columnas en HDFS.
 #
-# Por qué en el nodo borde y no en YARN: los ejecutores no pueden leer el disco
-# local del nodo borde, así que copiar 263 archivos de ~7 MB a HDFS para luego
-# leerlos distribuidos cuesta 1,68 GiB de escritura extra y no aporta nada
-# (es I/O, no cómputo). El análisis posterior sí corre en YARN.
+# Flujo: la descarga es red (nodo borde); el PUT a HDFS deja el crudo en el
+# sistema distribuido (1,68 GiB, replicación 1) y la unificación corre en los
+# ejecutores leyendo desde HDFS. El crudo queda en HDFS para poder reconstruir
+# el Parquet sin volver a descargar.
+#
+# Códigos de salida: 2 entorno/HDFS, 3 sin internet, 4 descarga, 5 Spark, 6 PUT.
 #
 # Uso:  bash scripts/stage_data.sh
 #       GAIA_RAW_DIR=/data/2026/uhadoop/teatime/raw bash scripts/stage_data.sh
+#       GAIA_MASTER='local[6]' bash scripts/stage_data.sh    # plan B sin YARN
 set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -53,11 +57,33 @@ fi
 log "== descarga =="
 python3 src/download.py --config "$CFG" || { log "descarga incompleta"; exit 4; }
 
+log "== subida de crudos a HDFS =="
+HDFS_URI=$(python3 -c "import json;print(json.load(open('$CFG'))['hdfs']['uri'].rstrip('/'))")
+HDFS_RAW="$PROJ/raw"
+LOCAL_COUNT=$(ls -1 "$RAW_DIR"/*.parquet 2>/dev/null | wc -l)
+[ "$LOCAL_COUNT" -gt 0 ] || { log "no hay parquet en $RAW_DIR"; exit 4; }
+hdfs dfs -mkdir -p "$HDFS_RAW" || { log "no pude crear $HDFS_RAW"; exit 2; }
+HDFS_COUNT=$(hdfs dfs -count "$HDFS_RAW" 2>/dev/null | awk '{print $2}')
+HDFS_COUNT=${HDFS_COUNT:-0}
+if [ "$HDFS_COUNT" -eq "$LOCAL_COUNT" ]; then
+  log "raw ya está en HDFS ($HDFS_COUNT archivos); se omite la subida"
+else
+  log "subiendo $LOCAL_COUNT archivos con replicación 1"
+  hdfs dfs -D dfs.replication=1 -put -f "$RAW_DIR"/*.parquet "$HDFS_RAW"/ \
+    || { log "falló la subida a HDFS"; exit 6; }
+fi
+hdfs dfs -count -h "$HDFS_RAW"
+HDFS_COUNT=$(hdfs dfs -count "$HDFS_RAW" | awk '{print $2}')
+[ "$HDFS_COUNT" -eq "$LOCAL_COUNT" ] \
+  || { log "mismatch: HDFS tiene $HDFS_COUNT archivos, local $LOCAL_COUNT"; exit 6; }
+
 log "== unificación con Spark =="
 # shellcheck source=/dev/null
 source "$HERE/yarn_env.sh"
-GAIA_MASTER='local[6]' GAIA_DRIVER_MEMORY=6g gaia_spark_conf
+gaia_spark_conf
+log "master: ${GAIA_MASTER} | executors: ${GAIA_NUM_EXECUTORS:-n/a} x ${GAIA_EXEC_MEMORY:-?}"
 spark-submit "${GAIA_CONF[@]}" src/stage.py --config "$CFG" \
+  --raw-uri "$HDFS_URI$HDFS_RAW" \
   2>&1 | tee results/stage.log | grep -vE '^[0-9]{2}/[0-9]{2}/[0-9]{2}' | tail -60
 status=${PIPESTATUS[0]}
 if [ "$status" -ne 0 ]; then
@@ -72,4 +98,6 @@ hdfs dfs -du -s -h "$MERGED" 2>/dev/null
 
 log "== resumen =="
 cat results/stage_summary.json
+log "crudo local: $RAW_DIR (se puede borrar con rm -f $RAW_DIR/*.parquet)"
+log "crudo HDFS: $HDFS_RAW | unificado: $MERGED"
 log "FIN OK"

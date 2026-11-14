@@ -31,11 +31,26 @@
     "mu3sigma_k": 3.0,
     "percentile": 0.99
   },
+  "filters": {
+    "default": "base",
+    "profiles": {
+      "base": {
+        "parallax_min": 0.0,
+        "parallax_snr_min": null
+      },
+      "snr5": {
+        "parallax_min": 0.0,
+        "parallax_snr_min": 5.0
+      }
+    },
+    "dedupe_object_id": false
+  },
   "kinematics": {
     "abs_pm_max": 3.0,
     "rel_neighbors": 8,
     "rel_factor": 0.6,
     "parallax_rel_disp_max": 0.5,
+    "error_factor": 2.0,
     "min_stars": 20
   }
 }

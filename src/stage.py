@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Unifica la partición Norder=4/Dir=0 en un único Parquet de 9 columnas.
+"""Unifica la partición Norder=4/Dir=0 en un único Parquet de 12 columnas.
 
 Hace, en este orden:
-  1. lee los 263 parquet crudos (disparado desde el nodo borde en local[*]);
-  2. conserva las 8 columnas de la propuesta y agrega `source_tile`,
-     extraído del nombre de archivo (`Npix=N.parquet`);
+  1. lee los 263 parquet crudos desde HDFS (o desde disco local, `--raw`);
+  2. conserva las 8 columnas de la propuesta, agrega los 3 errores
+     astrométricos (`parallax_error`, `pmra_error`, `pmdec_error`) y
+     `source_tile`, extraído del nombre de archivo (`Npix=N.parquet`);
   3. cuenta nulos y NaN por columna ANTES de limpiar (en Spark `isNull()`
      no ve los NaN y `NaN > 0` es verdadero: sin este paso, un filtro
      `parallax > 0` deja pasar basura);
@@ -16,7 +17,7 @@ Hace, en este orden:
      del plan: de qué baldosa salen las celdas más densas).
 
 Uso:
-    spark-submit src/stage.py --config config.json [--parts 32]
+    spark-submit src/stage.py --config config.json [--raw-uri hdfs://...] [--parts 32]
 """
 
 import argparse
@@ -30,15 +31,20 @@ from common import dump_json, hdfs_uri, load_config, log, plain, resolve  # noqa
 from pyspark.sql import SparkSession  # noqa: E402
 from pyspark.sql import functions as F  # noqa: E402
 
-# Columnas de la propuesta. El nombre a la izquierda es el del dataset
-# (columnas anidadas aplanadas con punto) y a la derecha el alias corto.
+# Columnas de la propuesta + errores astrométricos. El nombre a la izquierda es
+# el del dataset (columnas anidadas aplanadas con punto) y a la derecha el alias
+# corto. Los errores habilitan el corte de señal/ruido y comparar la dispersión
+# observada con la esperada por errores formales.
 COLS = {
     "object_id": "object_id",
     "ra": "ra",
     "dec": "dec",
     "astrometry.parallax": "parallax",
+    "astrometry.parallax_error": "parallax_error",
     "astrometry.pmra": "pmra",
+    "astrometry.pmra_error": "pmra_error",
     "astrometry.pmdec": "pmdec",
+    "astrometry.pmdec_error": "pmdec_error",
     "photometry.phot_g_mean_mag": "phot_g_mean_mag",
     "photometry.bp_rp": "bp_rp",
 }
@@ -49,11 +55,13 @@ OUT_COLS = KEEP + ["source_tile"]
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config.json")
+    ap.add_argument("--raw-uri", help="ruta HDFS de los parquet crudos; sobreescribe config")
     ap.add_argument("--parts", type=int, help="particiones de salida (default: config)")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
-    raw_dir = os.environ.get("GAIA_RAW_DIR") or resolve(cfg["local"]["raw"])
+    raw_dir = args.raw_uri or os.environ.get("GAIA_RAW_DIR") or resolve(cfg["local"]["raw"])
+    log("origen de los crudos: {}".format(raw_dir))
     out_uri = hdfs_uri(cfg, "merged")
     results_dir = resolve(cfg["local"]["results"])
     parts = args.parts or cfg["spark"]["parts"]
@@ -159,6 +167,22 @@ def main():
         for r in per_tile.orderBy(F.desc("max_cell")).limit(10).collect()
     ]
 
+    # Calidad astrométrica: cuántas estrellas sobreviven un corte de señal/ruido
+    # en paralaje y cómo se distribuye parallax/parallax_error.
+    snr_df = ok.filter(
+        F.col("parallax_error").isNotNull() & (F.col("parallax_error") > 0)
+    ).select((F.col("parallax") / F.col("parallax_error")).alias("snr"),
+             F.col("parallax_error"))
+    quality = snr_df.agg(
+        F.count("*").alias("rows_with_error"),
+        F.sum((F.col("snr") >= 5).cast("int")).alias("rows_snr_ge_5"),
+        F.sum((F.col("snr") >= 10).cast("int")).alias("rows_snr_ge_10"),
+        F.avg("parallax_error").alias("mean_parallax_error"),
+    ).first().asDict()
+    quality["snr_percentiles"] = dict(
+        zip(["p10", "p50", "p90"], snr_df.approxQuantile("snr", [0.1, 0.5, 0.9], 0.01))
+    )
+
     summary = {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "spark_version": spark.version,
@@ -189,6 +213,7 @@ def main():
             "tiles_by_max_cell": tiles_by_max,
         },
         "tiles": {"n": stats_in["n_tiles"], "top_by_rows": tiles_top},
+        "quality": quality,
         "timings_s": {
             "read_and_clean": round(t_before_write - t_start, 1),
             "write": round(t_after_write - t_before_write, 1),
@@ -206,6 +231,9 @@ def main():
         top = top_cells[0]
         log("celda más densa: tile={} ci={} cj={} count={}".format(
             top["source_tile"], top["ci"], top["cj"], top["count"]))
+    log("calidad: {} filas con parallax_error, SNR>=5: {}, p50(SNR)={}".format(
+        quality["rows_with_error"], quality["rows_snr_ge_5"],
+        round(quality["snr_percentiles"]["p50"], 2)))
     log("SUMMARY_OK {}".format(os.path.join(results_dir, "stage_summary.json")))
     return 0
 

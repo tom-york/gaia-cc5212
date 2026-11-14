@@ -17,8 +17,14 @@ Entrega: informe de 5–6 páginas, presentación de 8 minutos y este repositori
 | Partición | `Norder=4/Dir=0`: 263 archivos Parquet |
 | Tamaño | 1.800.261.960 B ≈ 1,68 GiB (verificado contra la API de HF) |
 | Filas | reportadas por el análisis previo: 1.411.004 — **la fuente de verdad es `results/stage_summary.json`** |
-| Columnas usadas | `object_id`, `ra`, `dec`, `astrometry.parallax`, `astrometry.pmra`, `astrometry.pmdec`, `photometry.phot_g_mean_mag`, `photometry.bp_rp` |
+| Columnas usadas | `object_id`, `ra`, `dec`, `astrometry.parallax`, `astrometry.parallax_error`, `astrometry.pmra`, `astrometry.pmra_error`, `astrometry.pmdec`, `astrometry.pmdec_error`, `photometry.phot_g_mean_mag`, `photometry.bp_rp` |
 | Columna derivada | `source_tile` = `Npix` del nombre de archivo (baldosa HEALPix de origen) |
+
+El Parquet unificado tiene **12 columnas**. Los tres errores astrométricos no estaban en la
+propuesta original pero son baratos (mismos archivos, ~17 MB extra) y habilitan dos cosas:
+un corte de señal/ruido en paralaje (`parallax/parallax_error`) y comparar la dispersión
+observada de una celda con la esperada por errores formales, que es la forma honesta de
+decidir si una celda "viaja junta" o solo está lejos.
 
 `Norder` es el orden HEALPix de la baldosa a la que corresponde cada archivo: a mayor
 orden, baldosa más pequeña. `Dir` es solo una carpeta para agrupar archivos.
@@ -44,7 +50,7 @@ orden, baldosa más pequeña. `Dir` es solo una carpeta para agrupar archivos.
 config.json               resolución, umbrales, criterio cinemático y rutas
 src/common.py             config, rutas, logging, saneamiento de tipos
 src/download.py           descarga Norder=4/Dir=0 a raw/ (solo requests)
-src/stage.py              unificación a Parquet de 9 columnas en HDFS
+src/stage.py              unificación a Parquet de 12 columnas en HDFS (YARN)
 src/pipeline.py           (pendiente) celdas, umbrales, cinemática, candidatos
 src/figures.py            (pendiente) mapas y diagramas
 scripts/yarn_env.sh       flags de spark-submit validados en el clúster
@@ -57,12 +63,18 @@ raw/                      parquet crudos (no versionado)
 ## Cómo reproducir
 
 ```bash
-# 1. staging (nodo borde, ~20 min; usar tmux)
-bash scripts/stage_data.sh
+# 1. staging (nodo borde, ~25 min; usar screen/tmux)
+screen -S gaia
+bash scripts/stage_data.sh 2>&1 | tee results/stage_run.log
+# Ctrl-A D para salir sin matar la sesión; screen -r gaia para volver
 
 # 2. análisis (pendiente)
 bash scripts/run_experiments.sh
 ```
+
+Variables de entorno útiles: `GAIA_RAW_DIR` (dónde bajar los crudos; por defecto `raw/`),
+`GAIA_MASTER` (por defecto `yarn`; `local[6]` es el plan B sin YARN),
+`GAIA_NUM_EXECUTORS`, `GAIA_EXEC_MEMORY`.
 
 Transporte entre la máquina local y el clúster (el cluster solo escribe en `results/`):
 
@@ -84,9 +96,13 @@ rsync -av -e 'ssh -p 220' \
 - **`source_tile`.** Se conserva la baldosa de origen de cada estrella para poder
   auditar las celdas más densas (¿cuántas filas tiene esa baldosa?) y detectar
   duplicados entre archivos.
-- **Staging en el nodo borde.** Ver el comentario de `scripts/stage_data.sh`:
-  copiar los crudos a HDFS para leerlos distribuidos es I/O puro, no cómputo.
-  El análisis posterior sí corre en YARN.
+- **Staging distribuido.** El nodo borde solo descarga (red); los 263 crudos se suben
+  a HDFS con replicación 1 (1,68 GiB sobre ~912 GB libres, 0,2 %) y la unificación
+  corre en YARN leyendo desde HDFS. Al ser archivos de ~7 MB, Spark los empaqueta por
+  `maxPartitionBytes` (128 MB) en ~14 particiones de lectura, no en 263 tareas
+  diminutas: es la medición que desarma el argumento del *Small Files Problem* que la
+  propuesta original usaba para justificar `Norder=4`. `local[6]` queda como plan B y
+  lee del mismo `raw` en HDFS.
 - **YARN: memoria virtual.** El smoke test moría con `exit 143` / `-103` por
   `vmem-pmem-ratio ≈ 2,1` sobre el ApplicationMaster. Solución validada (y adoptada
   en `scripts/yarn_env.sh`): 1536m de memoria por executor y por AM, 512 de overhead,
@@ -100,8 +116,9 @@ rsync -av -e 'ssh -p 220' \
 
 ## Estado
 
-- [x] Staging: descarga, unificación con `source_tile`, escritura en HDFS con
-      replicación 1, contabilidad de nulos/NaN y test de duplicados y celdas por baldosa.
+- [x] Staging: descarga, PUT a HDFS con replicación 1, unificación distribuida en YARN
+      con `source_tile` y los 3 errores astrométricos, contabilidad de nulos/NaN y test
+      de duplicados y celdas por baldosa.
 - [ ] Pipeline: celdas por resolución, umbrales μ+3σ y percentil 99, criterio
       cinemático relativo, fusión de celdas contiguas.
 - [ ] Experimentos: 4 configuraciones × mitigación de skew, con tiempos.
