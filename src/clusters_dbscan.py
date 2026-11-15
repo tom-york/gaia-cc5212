@@ -60,8 +60,13 @@ def dbscan(X, eps, min_pts, chunk=500):
 def find_clusters(tile, pts, p):
     """Corre en los ejecutores: recibe todas las estrellas de una baldosa."""
     a = np.array(pts, dtype=np.float64)  # cols: oid, ra, dec, plx, pmra, pmdec, g
+    # Orden determinista (H-22): groupByKey no fija el orden de las filas dentro de
+    # una baldosa, y de ese orden dependen los promedios, el recorte por magnitud y
+    # el flood-fill de DBSCAN. Sin fijarlo, dos corridas con la misma config
+    # devuelven grupos distintos.
+    a = a[np.lexsort((a[:, 0], a[:, 5], a[:, 4], a[:, 3], a[:, 2], a[:, 1]))]
     if len(a) > p["max_stars_per_tile"]:
-        a = a[np.argsort(a[:, 6])[:p["max_stars_per_tile"]]]
+        a = a[np.argsort(a[:, 6], kind="stable")[:p["max_stars_per_tile"]]]
     if len(a) < p["min_members"]:
         return []
 
@@ -98,6 +103,9 @@ def find_clusters(tile, pts, p):
 
 # ----------------------------- FUSIÓN EN DRIVER ------------------------------
 def merge_clusters(cl, p):
+    # El orden de llegada desde flatMap tampoco es estable: se fija para que los
+    # promedios ponderados y la numeración de cluster_id sean reproducibles.
+    cl = sorted(cl, key=lambda c: (c[0], c[2], c[3], c[4], c[5], c[6]))
     n = len(cl)
     if n == 0:
         return []
