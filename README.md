@@ -166,7 +166,7 @@ Cada corrida agrega un registro a `results/experiments/timings.json`:
 | Campo | Qué es |
 |---|---|
 | `wall_s` | punta a punta del `spark-submit`, incluye el arranque en YARN |
-| `spark_s` | el `Tiempo total` que imprime el script, sin arranque |
+| `spark_s` | el `Tiempo total` que imprime el script (incluye crear la sesión, no el lanzador) |
 | `tag`, `method`, `overrides`, `rc` | trazabilidad: qué config se usó y cómo terminó |
 
 `wall_s − spark_s` es solo el lanzador (bash + JVM de `spark-submit` + cierre):
