@@ -21,7 +21,7 @@ import time
 from pyspark.sql import SparkSession, Window, functions as F
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import hdfs_uri, load_config, log, repo_root, resolve  # noqa: E402
+from common import hdfs_uri, load_config, log, repo_root, results_path  # noqa: E402
 
 
 # ----------------------------- UTILIDADES ------------------------------------
@@ -113,7 +113,7 @@ def main(argv=None):
     path_in = hdfs_uri(cfg, "merged")
     path_out = hdfs_uri(cfg, "clusters_celdas")
     path_members = hdfs_uri(cfg, "members_celdas")
-    csv_out = os.path.join(resolve(cfg["local"]["results"]), "clusters_celdas.csv")
+    csv_out = results_path(cfg, "clusters", "clusters_celdas.csv")
 
     t0 = time.time()
     spark = SparkSession.builder.appName("gaia_clusters_celdas").getOrCreate()

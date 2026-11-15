@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import dump_json, load_config, log, resolve  # noqa: E402
+from common import dump_json, load_config, log, resolve, results_path  # noqa: E402
 
 TIMEOUT = 180
 RETRIES = 5
@@ -68,7 +68,7 @@ def main():
         return 3
 
     raw_dir = os.environ.get("GAIA_RAW_DIR") or resolve(cfg["local"]["raw"])
-    results_dir = resolve(cfg["local"]["results"])
+    results_dir = results_path(cfg, "staging")
     os.makedirs(raw_dir, exist_ok=True)
     os.makedirs(results_dir, exist_ok=True)
 

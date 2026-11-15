@@ -18,7 +18,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import hdfs_uri, load_config, log, repo_root, resolve  # noqa: E402
+from common import hdfs_uri, load_config, log, repo_root, results_path  # noqa: E402
 
 
 # ----------------------------- DBSCAN (numpy) --------------------------------
@@ -161,7 +161,7 @@ def main(argv=None):
 
     path_in = hdfs_uri(cfg, "merged")
     path_out = hdfs_uri(cfg, "clusters_dbscan")
-    csv_out = os.path.join(resolve(cfg["local"]["results"]), "clusters_dbscan.csv")
+    csv_out = results_path(cfg, "clusters", "clusters_dbscan.csv")
 
     t0 = time.time()
     spark = SparkSession.builder.appName("gaia_clusters_dbscan").getOrCreate()

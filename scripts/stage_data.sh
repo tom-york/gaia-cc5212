@@ -18,7 +18,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(dirname "$HERE")
 CFG=${CFG:-$REPO/config.json}
 cd "$REPO" || exit 2
-mkdir -p raw results
+mkdir -p raw results/staging
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 
@@ -84,10 +84,10 @@ gaia_spark_conf
 log "master: ${GAIA_MASTER} | executors: ${GAIA_NUM_EXECUTORS:-n/a} x ${GAIA_EXEC_MEMORY:-?}"
 spark-submit "${GAIA_CONF[@]}" src/stage.py --config "$CFG" \
   --raw-uri "$HDFS_URI$HDFS_RAW" \
-  2>&1 | tee results/stage.log | grep -vE '^[0-9]{2}/[0-9]{2}/[0-9]{2}' | tail -60
+  2>&1 | tee results/staging/stage.log | grep -vE '^[0-9]{2}/[0-9]{2}/[0-9]{2}' | tail -60
 status=${PIPESTATUS[0]}
 if [ "$status" -ne 0 ]; then
-  log "stage.py falló (exit $status); revisa results/stage.log"
+  log "stage.py falló (exit $status); revisa results/staging/stage.log"
   exit 5
 fi
 
@@ -97,7 +97,7 @@ hdfs dfs -du -h "$MERGED" 2>/dev/null | awk '{n+=1; b+=$1} END {if (n) printf "p
 hdfs dfs -du -s -h "$MERGED" 2>/dev/null
 
 log "== resumen =="
-cat results/stage_summary.json
+cat results/staging/stage_summary.json
 log "crudo local: $RAW_DIR (se puede borrar con rm -f $RAW_DIR/*.parquet)"
 log "crudo HDFS: $HDFS_RAW | unificado: $MERGED"
 log "FIN OK"

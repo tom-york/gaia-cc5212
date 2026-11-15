@@ -74,7 +74,10 @@ scripts/make_pylibs.sh    genera pylibs.zip con numpy (no versionado)
 scripts/inspect_schema.py imprime el esquema del Parquet unificado
 scripts/run_experiments.sh barrido de configuraciones con tiempos
 docs/hallazgos.md         bitácora de hallazgos con evidencia y pendientes
-results/                  resúmenes JSON, tablas CSV, figuras y tiempos
+results/staging/          resúmenes y evidencia del staging
+results/clusters/         tablas de candidatos, una por método
+results/experiments/      configs del barrido y timings.json
+results/figures/          figuras del informe
 raw/                      parquet crudos (no versionado)
 ```
 
@@ -83,7 +86,8 @@ raw/                      parquet crudos (no versionado)
 ```bash
 # 1. staging (nodo borde, ~25 min; usar screen/tmux)
 screen -S gaia
-bash scripts/stage_data.sh 2>&1 | tee results/stage_run.log
+mkdir -p results/staging
+bash scripts/stage_data.sh 2>&1 | tee results/staging/stage_run.log
 # Ctrl-A D para salir sin matar la sesión; screen -r gaia para volver
 
 # 2. detección de candidatos
@@ -94,8 +98,8 @@ bash scripts/run_clusters.sh --method dbscan   # DBSCAN 5D (numpy en ejecutores)
 bash scripts/run_experiments.sh
 ```
 
-Cada corrida deja su log en `results/clusters_<método>_run.log` (no versionado) y su
-tabla en `results/clusters_<método>.csv`.
+Cada corrida deja su log en `results/clusters/clusters_<método>_run.log` (no versionado)
+y su tabla en `results/clusters/clusters_<método>.csv`.
 
 DBSCAN necesita numpy en los contenedores de YARN. Si no lo ven, `scripts/make_pylibs.sh`
 genera `pylibs/pylibs.zip` (numpy con `numpy/` en la raíz, de modo que
@@ -202,11 +206,11 @@ etapa que imprimen los scripts son de los jobs de Spark, no de las líneas de Py
 - [x] Staging (2026-11-14): descarga, PUT a HDFS con replicación 1, unificación
       distribuida en YARN con `source_tile` y los 3 errores astrométricos, contabilidad
       de nulos/NaN y test de duplicados y celdas por baldosa. Resultado en
-      `results/stage_summary.json`; lectura en `docs/hallazgos.md`.
+      `results/staging/stage_summary.json`; lectura en `docs/hallazgos.md`.
 - [x] Detección de candidatos (2026-11-15): dos métodos independientes sobre el mismo
       Parquet — DBSCAN 5D por baldosa (`src/clusters_dbscan.py`) y celdas de área
       ~constante con pico cinemático (`src/clusters_celdas.py`). Tablas en
-      `results/clusters_dbscan.csv` y `results/clusters_celdas.csv`.
+      `results/clusters/clusters_dbscan.csv` y `results/clusters/clusters_celdas.csv`.
 - [ ] Experimentos: runner listo (`scripts/run_experiments.sh`, 6 variantes); falta
       correrlo en el clúster y llenar `results/experiments/timings.json`.
 - [ ] Figuras: densidad con `LogNorm`, `pmra` vs `pmdec`, color–magnitud.

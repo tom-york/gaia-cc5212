@@ -26,6 +26,11 @@ def resolve(path):
     return os.path.join(repo_root(), path)
 
 
+def results_path(cfg, *parts):
+    """Ruta dentro de results/, separada por etapa (staging, clusters, experiments)."""
+    return os.path.join(resolve(cfg["local"]["results"]), *parts)
+
+
 def log(msg):
     print("[{}] {}".format(time.strftime("%H:%M:%S"), msg), flush=True)
 

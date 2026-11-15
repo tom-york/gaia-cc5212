@@ -16,7 +16,7 @@ BASE_CONFIG="config.json"
 OUT_DIR="results/experiments"
 CONF_DIR="$OUT_DIR/configs"
 TIMINGS="$OUT_DIR/timings.json"
-LOG_DIR="results"   # donde run_clusters.sh deja el log de cada método
+LOG_DIR="results/clusters"   # donde run_clusters.sh deja el log de cada método
 
 ONLY=""
 TAG=""

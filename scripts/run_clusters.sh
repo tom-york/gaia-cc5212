@@ -38,8 +38,8 @@ fi
 source scripts/yarn_env.sh
 gaia_spark_conf
 
-mkdir -p results
-LOG="results/clusters_${METHOD}_run.log"
+mkdir -p results/clusters
+LOG="results/clusters/clusters_${METHOD}_run.log"
 NOISE='^[0-9]{2}/[0-9]{2}/[0-9]{2}'
 
 run_spark() {

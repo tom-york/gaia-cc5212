@@ -31,7 +31,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from common import dump_json, hdfs_uri, load_config, log, plain, resolve  # noqa: E402
+from common import dump_json, hdfs_uri, load_config, log, plain, resolve, results_path  # noqa: E402
 from pyspark.sql import SparkSession  # noqa: E402
 from pyspark.sql import functions as F  # noqa: E402
 from pyspark.sql.utils import AnalysisException  # noqa: E402
@@ -85,7 +85,7 @@ def main():
     raw_dir = args.raw_uri or os.environ.get("GAIA_RAW_DIR") or resolve(cfg["local"]["raw"])
     log("origen de los crudos: {}".format(raw_dir))
     out_uri = hdfs_uri(cfg, "merged")
-    results_dir = resolve(cfg["local"]["results"])
+    results_dir = results_path(cfg, "staging")
     parts = args.parts or cfg["spark"]["parts"]
     res = float(cfg["binning"]["verify_res_deg"])
 

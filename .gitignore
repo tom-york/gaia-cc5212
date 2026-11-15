@@ -8,8 +8,8 @@ pylibs/
 *.zip
 
 # Salidas grandes: se transportan por rsync, no por git
-results/cells_*.csv
-results/*.log
+results/experiments/cells_*.csv
+results/**/*.log
 results/parts/
 
 # Basura de Python
