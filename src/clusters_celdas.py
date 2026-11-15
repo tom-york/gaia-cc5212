@@ -163,7 +163,8 @@ def main(argv=None):
         cells = stars.groupBy("j", "i").agg(F.count("*").alias("n"))
         st = cells.agg(F.count("*").alias("nc"), F.mean("n").alias("mu"),
                        F.stddev("n").alias("sd"),
-                       F.percentile_approx("n", p["percentile"]).alias("pc")).first()
+                       F.percentile_approx("n", p["percentile"]).alias("pc"),
+                       F.max("n").alias("mx")).first()
         mu, sd, pc = float(st["mu"]), float(st["sd"] or 0.0), float(st["pc"])
         thr_sigma = mu + p["sigma_k"] * sd
         thr = max(thr_sigma, pc, float(p["min_cell_stars"]))
@@ -172,8 +173,14 @@ def main(argv=None):
         print(f"celdas no vacías: {st['nc']} | mu={mu:.1f} sigma={sd:.1f} "
               f"p{int(p['percentile'] * 100)}={pc:.0f} -> umbral={thr:.1f} ({src})")
 
-        agg_h = cells.agg(F.max("n").alias("mx"),
-                          F.histogram_numeric("n", 40).alias("h")).first()
+        # Histograma de conteos en cubetas de ancho fijo. Se hace con groupBy y no con
+        # histogram_numeric porque esa UDAF no está expuesta en pyspark.sql.functions.
+        mx = int(st["mx"])
+        width = max(1.0, mx / 40.0)
+        hist = [{"n": round((float(r["b"]) + 0.5) * width, 1), "cells": int(r["cells"])}
+                for r in (cells.withColumn("b", F.floor(F.col("n") / width))
+                               .groupBy("b").agg(F.count("*").alias("cells"))
+                               .orderBy("b").collect())]
         rst = {
             "resolution_deg": d,
             "n_cells": int(st["nc"]),
@@ -183,9 +190,8 @@ def main(argv=None):
             "p_value": pc,
             "threshold": thr,
             "threshold_source": src,
-            "max_cell": int(agg_h["mx"]),
-            "histogram": [{"n": float(b["x"]), "cells": int(b["y"])}
-                          for b in (agg_h["h"] or [])],
+            "max_cell": mx,
+            "histogram": hist,
         }
 
         def save_res(n_flag=0, n_clusters=0, med=None, seconds=None):
@@ -248,9 +254,9 @@ def main(argv=None):
             F.avg("pmra").alias("pmra_m"), F.avg("pmdec").alias("pmdec_m"),
             F.stddev("parallax").alias("sdp"), F.stddev("pmra").alias("sdr"),
             F.stddev("pmdec").alias("sdd"),
-            F.expr("percentile_approx(parallax, 0.5)").alias("plx_med"),
-            F.expr("percentile_approx(parallax, 0.16)").alias("plx_p16"),
-            F.expr("percentile_approx(parallax, 0.84)").alias("plx_p84"))
+            F.percentile_approx("parallax", 0.5).alias("plx_med"),
+            F.percentile_approx("parallax", 0.16).alias("plx_p16"),
+            F.percentile_approx("parallax", 0.84).alias("plx_p84"))
             .withColumn("ra_c", (F.col("ra_raw") + 360.0) % 360.0)
             .filter(F.col("n") >= p["min_members"]))
         cen = cen.persist()

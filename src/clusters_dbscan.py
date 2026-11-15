@@ -173,9 +173,9 @@ def add_parallax_band(tabla, base):
 
     q = (sel.groupBy("cluster_id").agg(
         F.count("*").alias("n_ref"),
-        F.expr("percentile_approx(parallax, 0.5)").alias("plx_med"),
-        F.expr("percentile_approx(parallax, 0.16)").alias("plx_p16"),
-        F.expr("percentile_approx(parallax, 0.84)").alias("plx_p84")))
+        F.percentile_approx("parallax", 0.5).alias("plx_med"),
+        F.percentile_approx("parallax", 0.16).alias("plx_p16"),
+        F.percentile_approx("parallax", 0.84).alias("plx_p84")))
     # La banda se invierte al pasar a distancia: plx_p84 es la distancia menor.
     q = (q.withColumn("dist_med_pc", 1000.0 / F.col("plx_med"))
           .withColumn("dist_p16_pc", 1000.0 / F.col("plx_p84"))
