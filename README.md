@@ -73,10 +73,11 @@ scripts/run_clusters.sh   corre cualquiera de los dos detectores (--method)
 scripts/make_pylibs.sh    genera pylibs.zip con numpy (no versionado)
 scripts/inspect_schema.py imprime el esquema del Parquet unificado
 scripts/run_experiments.sh barrido de configuraciones con tiempos
+scripts/compare_clusters.py compara dos tablas por conjunto (no por orden)
 docs/hallazgos.md         bitácora de hallazgos con evidencia y pendientes
 results/staging/          resúmenes y evidencia del staging
 results/clusters/         tablas de candidatos, una por método
-results/experiments/      configs del barrido y timings.json
+results/experiments/      configs, timings y una carpeta por variante
 results/figures/          figuras del informe
 raw/                      parquet crudos (no versionado)
 ```
@@ -94,12 +95,22 @@ bash scripts/stage_data.sh 2>&1 | tee results/staging/stage_run.log
 bash scripts/run_clusters.sh --method celdas   # Spark SQL puro
 bash scripts/run_clusters.sh --method dbscan   # DBSCAN 5D (numpy en ejecutores)
 
-# 3. experimentos y tiempos (pendiente)
+# 3. experimentos y tiempos (6 variantes, ~20 min)
 bash scripts/run_experiments.sh
+
+# 4. dejar las tablas canónicas al día (el barrido escribe en su propia carpeta)
+bash scripts/run_clusters.sh --method dbscan
+bash scripts/run_clusters.sh --method celdas
 ```
 
-Cada corrida deja su log en `results/clusters/clusters_<método>_run.log` (no versionado)
-y su tabla en `results/clusters/clusters_<método>.csv`.
+Cada corrida deja su log en `results/clusters/clusters_<método>_run.log` (no versionado),
+su tabla en `results/clusters/clusters_<método>.csv` y el embudo en
+`results/clusters/run_summary_<método>.json`.
+
+Con `--out DIR --tag NOMBRE` las salidas locales van a `DIR` y los parquet a
+`gaia_clusters_NOMBRE.parquet`, `gaia_clusters_celdas_NOMBRE.parquet` y
+`gaia_cluster_members_celdas_NOMBRE.parquet`. Es lo que usa el barrido para que dos
+variantes no se pisen ni en disco ni en HDFS.
 
 DBSCAN necesita numpy en los contenedores de YARN. Si no lo ven, `scripts/make_pylibs.sh`
 genera `pylibs/pylibs.zip` (numpy con `numpy/` en la raíz, de modo que
@@ -158,8 +169,21 @@ Cada corrida agrega un registro a `results/experiments/timings.json`:
 | `spark_s` | el `Tiempo total` que imprime el script, sin arranque |
 | `tag`, `method`, `overrides`, `rc` | trazabilidad: qué config se usó y cómo terminó |
 
-`wall_s − spark_s` es el costo de arranque de la aplicación (~40 s medidos en H-09). Va
-declarado en el informe, no restado en silencio.
+`wall_s − spark_s` es solo el lanzador (bash + JVM de `spark-submit` + cierre):
+**7,8–9,4 s** en las 6 corridas. No es el arranque de la aplicación, porque el cronómetro
+del script arranca antes de crear la sesión y `spark_s` ya lo incluye.
+
+Cada variante escribe en su propia carpeta, así que nada se pisa:
+
+```
+results/experiments/<tag>/clusters_<método>.csv
+results/experiments/<tag>/clusters_<método>_run.log
+results/experiments/<tag>/run_summary_<método>.json
+results/experiments/<tag>/cells_<res>_hist.json     (solo el método por celdas)
+HDFS: gaia_clusters_<tag>.parquet, gaia_clusters_celdas_<tag>.parquet, ...
+```
+
+La corrida sin `--tag` escribe en `results/clusters/`, que es la tabla que cita el informe.
 
 **Cuidado con los rótulos.** El plan de Spark es perezoso: la lectura del Parquet ocurre
 dentro del primer job que la necesita, no donde el código la declara (H-09). Los tiempos por
@@ -211,8 +235,12 @@ etapa que imprimen los scripts son de los jobs de Spark, no de las líneas de Py
       Parquet — DBSCAN 5D por baldosa (`src/clusters_dbscan.py`) y celdas de área
       ~constante con pico cinemático (`src/clusters_celdas.py`). Tablas en
       `results/clusters/clusters_dbscan.csv` y `results/clusters/clusters_celdas.csv`.
-- [ ] Experimentos: runner listo (`scripts/run_experiments.sh`, 6 variantes); falta
-      correrlo en el clúster y llenar `results/experiments/timings.json`.
+- [x] Experimentos (2026-11-15): 6 variantes con `rc = 0`, tiempos en
+      `results/experiments/timings.json` (132–177 s de Spark, 7,8–9,4 s de lanzador).
+      Sensibilidad de `eps` y del SNR en H-19 y H-20.
+- [ ] Re-correr el barrido con `--out`/`--tag` y refrescar las tablas canónicas: la
+      corrida del 15-nov escribía todas las variantes en el mismo CSV por método, así que
+      la última tapó a las anteriores.
 - [ ] Figuras: densidad con `LogNorm`, `pmra` vs `pmdec`, color–magnitud.
 - [ ] Validación: M7, SIMBAD, Hunt & Reffert (2023).
 
@@ -221,7 +249,16 @@ etapa que imprimen los scripts son de los jobs de Spark, no de las líneas de Py
 - La muestra son las baldosas de orden 4 del subconjunto BP/RP (mayormente G ≲ 17,6),
   no todo Gaia ni todo el cielo; las regiones densas del plano galáctico están
   subrepresentadas por construcción de HATS.
-- Binning rectangular en RA/Dec: las celdas tienen área distinta (factor `cos dec`).
+- Las celdas tienen área ~constante (~1 deg²) por construcción, pero cerca de los polos
+  son tiras muy alargadas en RA: el "vecino" de una celda no es un vecino físico
+  simétrico, y la fusión de celdas contiguas lo hereda.
+- El umbral de densidad es un cuantil fijo (percentil 99 ≈ 1 % de las celdas no vacías),
+  no un contraste adaptativo: el número de candidatos depende de la resolución (H-21).
+- `eps = 1,0` no detecta el grupo ligado de 237 pc y `eps = 1,2` funde cuatro
+  poblaciones en un solo grupo de 569 miembros (H-19). El valor elegido es un
+  compromiso declarado, no un óptimo.
+- El filtro `SNR ≥ 10` descarta el 32 % de las filas; con `SNR ≥ 5` los dos métodos
+  dejan de coincidir en paralaje (H-20).
 - El criterio cinemático absoluto (dispersión de movimiento propio < 3 mas/año) depende
   de la distancia y del entorno; el método por celdas usa en su lugar un pico cinemático
   relativo a la mediana de las celdas densas.

@@ -18,7 +18,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import hdfs_uri, load_config, log, repo_root, results_path  # noqa: E402
+from common import dump_json, hdfs_uri, load_config, log, repo_root, results_path, tagged  # noqa: E402
 
 
 # ----------------------------- DBSCAN (numpy) --------------------------------
@@ -144,11 +144,54 @@ def merge_clusters(cl, p):
              r[6], r[7], r[8], r[9]) for i, r in enumerate(merged)]
 
 
+def add_parallax_band(tabla, base):
+    """Recalcula la paralaje como mediana con banda p16/p84 sobre las estrellas del grupo.
+
+    El promedio de paralaje no es el promedio de las distancias (H-17), así que se
+    reporta la mediana y su banda. La selección es la misma que definió al grupo:
+    dentro de 2 radios, 3 sigma de paralaje y 3 sigma de movimiento propio.
+    """
+    c = (tabla.select(
+        "cluster_id",
+        F.col("ra").alias("c_ra"), F.col("dec").alias("c_dec"),
+        F.col("parallax").alias("c_plx"),
+        F.greatest(F.col("sd_parallax"), F.lit(0.01)).alias("c_sdp"),
+        F.col("pmra").alias("c_pmra"), F.col("pmdec").alias("c_pmdec"),
+        F.greatest(F.hypot(F.col("sd_pmra"), F.col("sd_pmdec")),
+                   F.lit(0.01)).alias("c_sdpm"),
+        F.greatest(F.col("radius_deg"), F.lit(0.05)).alias("c_rad")))
+
+    dra = ((F.col("ra") - F.col("c_ra") + 540.0) % 360.0) - 180.0
+    sep = F.sqrt(F.pow(dra * F.cos(F.radians(F.col("c_dec"))), 2)
+                 + F.pow(F.col("dec") - F.col("c_dec"), 2))
+    dpm = F.hypot(F.col("pmra") - F.col("c_pmra"), F.col("pmdec") - F.col("c_pmdec"))
+
+    sel = (base.join(F.broadcast(c), how="inner")
+               .filter((sep <= 2.0 * F.col("c_rad"))
+                       & (F.abs(F.col("parallax") - F.col("c_plx")) <= 3.0 * F.col("c_sdp"))
+                       & (dpm <= 3.0 * F.col("c_sdpm"))))
+
+    q = (sel.groupBy("cluster_id").agg(
+        F.count("*").alias("n_ref"),
+        F.expr("percentile_approx(parallax, 0.5)").alias("plx_med"),
+        F.expr("percentile_approx(parallax, 0.16)").alias("plx_p16"),
+        F.expr("percentile_approx(parallax, 0.84)").alias("plx_p84")))
+    # La banda se invierte al pasar a distancia: plx_p84 es la distancia menor.
+    q = (q.withColumn("dist_med_pc", 1000.0 / F.col("plx_med"))
+          .withColumn("dist_p16_pc", 1000.0 / F.col("plx_p84"))
+          .withColumn("dist_p84_pc", 1000.0 / F.col("plx_p16")))
+    return tabla.join(q, "cluster_id", "left")
+
+
 # ----------------------------- PIPELINE --------------------------------------
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="DBSCAN 5D por baldosa HEALPix")
     ap.add_argument("--config", default=os.path.join(repo_root(), "config.json"),
                     help="ruta al config.json")
+    ap.add_argument("--out", default=None,
+                    help="carpeta local de salida (por defecto results/clusters)")
+    ap.add_argument("--tag", default="",
+                    help="sufijo de la variante: se agrega al parquet en HDFS")
     return ap.parse_args(argv)
 
 
@@ -159,19 +202,24 @@ def main(argv=None):
     p["min_plx_snr"] = float(cfg["clusters"]["min_plx_snr"])
     p["max_gmag"] = float(cfg["clusters"]["max_gmag"])
 
+    out_dir = args.out or results_path(cfg, "clusters")
     path_in = hdfs_uri(cfg, "merged")
-    path_out = hdfs_uri(cfg, "clusters_dbscan")
-    csv_out = results_path(cfg, "clusters", "clusters_dbscan.csv")
+    path_out = tagged(hdfs_uri(cfg, "clusters_dbscan"), args.tag)
+    csv_out = os.path.join(out_dir, "clusters_dbscan.csv")
+    summary_out = os.path.join(out_dir, "run_summary_dbscan.json")
 
     t0 = time.time()
-    spark = SparkSession.builder.appName("gaia_clusters_dbscan").getOrCreate()
+    app = "gaia_clusters_dbscan" + ("_" + args.tag if args.tag else "")
+    spark = SparkSession.builder.appName(app).getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     log("entrada: {}".format(path_in))
+    log("salidas: csv={} parquet={}".format(csv_out, path_out))
     log("parámetros: " + ", ".join(
         "{}={}".format(k, v) for k, v in p.items() if not isinstance(v, dict)))
 
     df = spark.read.parquet(path_in)
-    print("\nFilas totales:", df.count())
+    n_total = df.count()
+    print("\nFilas totales:", n_total)
 
     base = (
         df.dropna(subset=["object_id", "ra", "dec", "parallax", "parallax_error",
@@ -182,7 +230,8 @@ def main(argv=None):
           .select("source_tile", "object_id", "ra", "dec", "parallax",
                   "pmra", "pmdec", "phot_g_mean_mag")
     )
-    print("Filas tras filtro de calidad:", base.count())
+    n_filtered = base.count()
+    print("Filas tras filtro de calidad:", n_filtered)
 
     rows = base.rdd.map(lambda r: (int(r[0]), tuple(float(v) for v in r[1:])))
     found = (rows.groupByKey(p["num_partitions"])
@@ -194,7 +243,9 @@ def main(argv=None):
     print("Clusters finales:", len(final))
 
     cols = ["cluster_id", "n_members", "ra", "dec", "parallax", "dist_pc",
-            "pmra", "pmdec", "sd_parallax", "sd_pmra", "sd_pmdec", "radius_deg"]
+            "pmra", "pmdec", "sd_parallax", "sd_pmra", "sd_pmdec", "radius_deg",
+            "plx_med", "plx_p16", "plx_p84",
+            "dist_med_pc", "dist_p16_pc", "dist_p84_pc", "n_ref"]
 
     if final:
         print("\n=== CLUSTERS ENCONTRADOS ===")
@@ -206,24 +257,41 @@ def main(argv=None):
         if len(final) > 30:
             print(f"... ({len(final) - 30} más en {csv_out})")
 
-        os.makedirs(os.path.dirname(csv_out), exist_ok=True)
-        with open(csv_out, "w", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(cols)
-            w.writerows(final)
-        print("\nCSV local:", csv_out)
-
         schema = ("cluster_id int, n_members int, ra double, dec double, parallax double, "
                   "dist_pc double, pmra double, pmdec double, sd_parallax double, "
                   "sd_pmra double, sd_pmdec double, radius_deg double")
-        tabla = spark.createDataFrame(final, schema)
+        tabla = add_parallax_band(spark.createDataFrame(final, schema), base).persist()
         tabla.show(10, truncate=False)
+
+        os.makedirs(out_dir, exist_ok=True)
+        with open(csv_out, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(cols)
+            w.writerows([[r[c] for c in cols]
+                         for r in tabla.orderBy("cluster_id").collect()])
+        print("\nCSV local:", csv_out)
+
         tabla.write.mode("overwrite").parquet(path_out)
         print("Parquet en HDFS:", path_out)
+        tabla.unpersist()
     else:
         print("No se encontraron clusters: prueba bajar min_pts/min_members o subir eps.")
 
-    print(f"\nTiempo total: {time.time() - t0:.1f} s")
+    elapsed = time.time() - t0
+    dump_json({
+        "method": "dbscan",
+        "tag": args.tag,
+        "config": os.path.abspath(args.config),
+        "rows_total": n_total,
+        "rows_after_filter": n_filtered,
+        "candidates_pre_merge": len(found),
+        "clusters_final": len(final),
+        "params": {k: v for k, v in p.items() if not isinstance(v, dict)},
+        "seconds": round(elapsed, 1),
+        "outputs": {"csv": csv_out, "parquet": path_out},
+    }, summary_out)
+
+    print(f"\nTiempo total: {elapsed:.1f} s")
     spark.stop()
     return 0
 

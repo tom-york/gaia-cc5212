@@ -3,6 +3,10 @@
 #   bash scripts/run_clusters.sh --method celdas   # solo Spark SQL
 #   bash scripts/run_clusters.sh --method dbscan   # DBSCAN 5D, numpy en ejecutores
 #   bash scripts/run_clusters.sh --method dbscan --config results/experiments/configs/eps_0.8.json
+#   bash scripts/run_clusters.sh --method celdas --out results/experiments/snr5 --tag snr5
+#
+# --out  carpeta local del CSV, del log y del resumen (por defecto results/clusters)
+# --tag  sufijo de los parquet en HDFS, para que dos variantes no se pisen
 set -euo pipefail
 
 ORIG_PWD="$PWD"
@@ -10,11 +14,15 @@ cd "$(dirname "$0")/.."
 
 METHOD="dbscan"
 CONFIG=""
+OUT=""
+TAG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --method) METHOD="${2:?falta el valor de --method}"; shift 2 ;;
     --config) CONFIG="${2:?falta el valor de --config}"; shift 2 ;;
-    -h|--help) sed -n '2,5p' "$0"; exit 0 ;;
+    --out) OUT="${2:?falta el valor de --out}"; shift 2 ;;
+    --tag) TAG="${2:?falta el valor de --tag}"; shift 2 ;;
+    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
     *) echo "argumento desconocido: $1" >&2; exit 2 ;;
   esac
 done
@@ -26,20 +34,29 @@ case "$METHOD" in
 esac
 
 # Las rutas relativas se resuelven contra el directorio desde donde se invocó,
-# no contra la raíz del repo (ya hicimos cd).
+# no contra la raíz del repo (ya hicimos cd). La salida por defecto es del repo.
+if [[ -z "$OUT" ]]; then
+  OUT="$PWD/results/clusters"
+elif [[ "$OUT" != /* ]]; then
+  OUT="$ORIG_PWD/$OUT"
+fi
 if [[ -n "$CONFIG" && "$CONFIG" != /* ]]; then
   CONFIG="$ORIG_PWD/$CONFIG"
 fi
-CONFIG_ARGS=()
+
+SCRIPT_ARGS=(--out "$OUT")
 if [[ -n "$CONFIG" ]]; then
-  CONFIG_ARGS=(--config "$CONFIG")
+  SCRIPT_ARGS+=(--config "$CONFIG")
+fi
+if [[ -n "$TAG" ]]; then
+  SCRIPT_ARGS+=(--tag "$TAG")
 fi
 
 source scripts/yarn_env.sh
 gaia_spark_conf
 
-mkdir -p results/clusters
-LOG="results/clusters/clusters_${METHOD}_run.log"
+mkdir -p "$OUT"
+LOG="$OUT/clusters_${METHOD}_run.log"
 NOISE='^[0-9]{2}/[0-9]{2}/[0-9]{2}'
 
 run_spark() {
@@ -66,7 +83,7 @@ if [[ "$METHOD" == "dbscan" ]]; then
     echo "ERROR: DBSCAN importa numpy en los ejecutores y no existe pylibs/pylibs.zip." >&2
     echo "       Generarlo en el nodo borde:  bash scripts/make_pylibs.sh" >&2
     echo "       O copiarlo desde tu maquina:" >&2
-    echo "         rsync -av -e 'ssh -p 220' pylibs/pylibs.zip \\" >&2
+    echo "         rsync -av -e 'ssh -p 220' pylibs/pylibs.zip" >&2
     echo "           uhadoop@cm.dcc.uchile.cl:~/teatime/gaia/gaia-cc5212/pylibs/" >&2
     echo "       Si los ejecutores ya tienen numpy: export GAIA_SKIP_NUMPY_CHECK=1" >&2
     exit 3
@@ -77,7 +94,7 @@ if [[ $USE_ARCHIVE -eq 1 ]]; then
   run_spark "${GAIA_CONF[@]}" \
     --archives pylibs/pylibs.zip#pylibs \
     --conf spark.executorEnv.PYTHONPATH=./pylibs \
-    "$SCRIPT" ${CONFIG_ARGS[@]+"${CONFIG_ARGS[@]}"}
+    "$SCRIPT" "${SCRIPT_ARGS[@]}"
 else
-  run_spark "${GAIA_CONF[@]}" "$SCRIPT" ${CONFIG_ARGS[@]+"${CONFIG_ARGS[@]}"}
+  run_spark "${GAIA_CONF[@]}" "$SCRIPT" "${SCRIPT_ARGS[@]}"
 fi

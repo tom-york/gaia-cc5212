@@ -16,7 +16,6 @@ BASE_CONFIG="config.json"
 OUT_DIR="results/experiments"
 CONF_DIR="$OUT_DIR/configs"
 TIMINGS="$OUT_DIR/timings.json"
-LOG_DIR="results/clusters"   # donde run_clusters.sh deja el log de cada método
 
 ONLY=""
 TAG=""
@@ -96,12 +95,14 @@ with open(out, "w", encoding="utf-8") as fh:
     json.dump(cfg, fh, indent=2, ensure_ascii=False)
 PY
 
-  log="$LOG_DIR/clusters_${method}_run.log"
+  out="results/experiments/$tag"
+  log="$out/clusters_${method}_run.log"
   echo
-  echo "=== $tag ($method) ==="
+  echo "=== $tag ($method) -> $out ==="
   t0=$(date +%s.%N)
   rc=0
-  bash scripts/run_clusters.sh --method "$method" --config "$cfg" || rc=$?
+  bash scripts/run_clusters.sh --method "$method" --config "$cfg" \
+    --out "$out" --tag "$tag" || rc=$?
   t1=$(date +%s.%N)
 
   spark_s=""
@@ -109,13 +110,13 @@ PY
     spark_s=$(grep -oE 'Tiempo total: [0-9.]+ s' "$log" | tail -1 | grep -oE '[0-9.]+' || true)
   fi
 
-  python3 - "$TIMINGS" "$tag" "$method" "$overrides" "$cfg" "$t0" "$t1" "$rc" "$spark_s" <<'PY'
+  python3 - "$TIMINGS" "$tag" "$method" "$overrides" "$cfg" "$out" "$t0" "$t1" "$rc" "$spark_s" <<'PY'
 import json
 import os
 import sys
 from datetime import datetime
 
-path, tag, method, overrides, cfg, t0, t1, rc, spark_s = sys.argv[1:10]
+path, tag, method, overrides, cfg, out, t0, t1, rc, spark_s = sys.argv[1:11]
 records = []
 if os.path.exists(path):
     with open(path, encoding="utf-8") as fh:
@@ -126,6 +127,7 @@ records.append({
     "method": method,
     "overrides": overrides,
     "config": cfg,
+    "out": out,
     "wall_s": round(float(t1) - float(t0), 1),
     "spark_s": float(spark_s) if spark_s else None,
     "rc": int(rc),

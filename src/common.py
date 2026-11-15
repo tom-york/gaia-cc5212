@@ -31,6 +31,17 @@ def results_path(cfg, *parts):
     return os.path.join(resolve(cfg["local"]["results"]), *parts)
 
 
+def tagged(path, tag):
+    """Sufija un nombre de archivo antes de la extensión, para variantes del barrido.
+
+    Sin tag devuelve la ruta intacta, así la corrida canónica escribe donde siempre.
+    """
+    if not tag:
+        return path
+    root, ext = os.path.splitext(path)
+    return "{}_{}{}".format(root, tag, ext)
+
+
 def log(msg):
     print("[{}] {}".format(time.strftime("%H:%M:%S"), msg), flush=True)
 

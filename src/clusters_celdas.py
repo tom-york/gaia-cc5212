@@ -21,7 +21,7 @@ import time
 from pyspark.sql import SparkSession, Window, functions as F
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import hdfs_uri, load_config, log, repo_root, results_path  # noqa: E402
+from common import dump_json, hdfs_uri, load_config, log, repo_root, results_path, tagged  # noqa: E402
 
 
 # ----------------------------- UTILIDADES ------------------------------------
@@ -100,6 +100,10 @@ def parse_args(argv=None):
     ap = argparse.ArgumentParser(description="Celdas + pico cinemático (Spark SQL)")
     ap.add_argument("--config", default=os.path.join(repo_root(), "config.json"),
                     help="ruta al config.json")
+    ap.add_argument("--out", default=None,
+                    help="carpeta local de salida (por defecto results/clusters)")
+    ap.add_argument("--tag", default="",
+                    help="sufijo de la variante: se agrega a los parquet en HDFS")
     return ap.parse_args(argv)
 
 
@@ -110,20 +114,25 @@ def main(argv=None):
     p["min_plx_snr"] = float(cfg["clusters"]["min_plx_snr"])
     p["max_gmag"] = float(cfg["clusters"]["max_gmag"])
 
+    out_dir = args.out or results_path(cfg, "clusters")
     path_in = hdfs_uri(cfg, "merged")
-    path_out = hdfs_uri(cfg, "clusters_celdas")
-    path_members = hdfs_uri(cfg, "members_celdas")
-    csv_out = results_path(cfg, "clusters", "clusters_celdas.csv")
+    path_out = tagged(hdfs_uri(cfg, "clusters_celdas"), args.tag)
+    path_members = tagged(hdfs_uri(cfg, "members_celdas"), args.tag)
+    csv_out = os.path.join(out_dir, "clusters_celdas.csv")
+    summary_out = os.path.join(out_dir, "run_summary_celdas.json")
 
     t0 = time.time()
-    spark = SparkSession.builder.appName("gaia_clusters_celdas").getOrCreate()
+    app = "gaia_clusters_celdas" + ("_" + args.tag if args.tag else "")
+    spark = SparkSession.builder.appName(app).getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     log("entrada: {}".format(path_in))
+    log("salidas: csv={} parquet={}".format(csv_out, path_out))
     log("parámetros: " + ", ".join(
         "{}={}".format(k, v) for k, v in p.items() if not isinstance(v, dict)))
 
     df = spark.read.parquet(path_in)
-    print("\nFilas totales:", df.count())
+    n_total = df.count()
+    print("\nFilas totales:", n_total)
 
     base = (
         df.dropna(subset=["object_id", "ra", "dec", "parallax", "parallax_error",
@@ -131,16 +140,19 @@ def main(argv=None):
           .filter((F.col("parallax") > 0)
                   & (F.col("parallax") / F.col("parallax_error") >= p["min_plx_snr"])
                   & (F.col("phot_g_mean_mag") <= p["max_gmag"]))
-          .select("object_id", "ra", "dec", "parallax", "pmra", "pmdec", "phot_g_mean_mag")
+          .select("object_id", "ra", "dec", "parallax", "pmra", "pmdec",
+                  "phot_g_mean_mag", "bp_rp")
           .withColumn("bp", F.floor(F.col("parallax") / p["bin_plx"]).cast("int"))
           .withColumn("br", F.floor(F.col("pmra") / p["bin_pm"]).cast("int"))
           .withColumn("bd", F.floor(F.col("pmdec") / p["bin_pm"]).cast("int"))
           .persist()
     )
-    print("Filas tras filtro de calidad:", base.count())
+    n_filtered = base.count()
+    print("Filas tras filtro de calidad:", n_filtered)
 
-    all_rows = []        # (res, cid_local, n_cells, n, ra, dec, plx, pmra, pmdec, sdp, sdr, sdd, rad)
+    all_rows = []        # (res, cid_local, n_cells, n, ra, dec, plx, pmra, pmdec, sdp, sdr, sdd, rad, med, p16, p84)
     members_dfs = []
+    res_stats = []
 
     for d in p["resolutions_deg"]:
         t1 = time.time()
@@ -153,13 +165,45 @@ def main(argv=None):
                        F.stddev("n").alias("sd"),
                        F.percentile_approx("n", p["percentile"]).alias("pc")).first()
         mu, sd, pc = float(st["mu"]), float(st["sd"] or 0.0), float(st["pc"])
-        thr = max(mu + p["sigma_k"] * sd, pc, float(p["min_cell_stars"]))
+        thr_sigma = mu + p["sigma_k"] * sd
+        thr = max(thr_sigma, pc, float(p["min_cell_stars"]))
+        src = ("mu+sigma" if thr == thr_sigma
+               else "p99" if thr == pc else "min_cell_stars")
         print(f"celdas no vacías: {st['nc']} | mu={mu:.1f} sigma={sd:.1f} "
-              f"p{int(p['percentile'] * 100)}={pc:.0f} -> umbral={thr:.1f}")
+              f"p{int(p['percentile'] * 100)}={pc:.0f} -> umbral={thr:.1f} ({src})")
+
+        agg_h = cells.agg(F.max("n").alias("mx"),
+                          F.histogram_numeric("n", 40).alias("h")).first()
+        rst = {
+            "resolution_deg": d,
+            "n_cells": int(st["nc"]),
+            "mean": round(mu, 2),
+            "sigma": round(sd, 2),
+            "percentile": p["percentile"],
+            "p_value": pc,
+            "threshold": thr,
+            "threshold_source": src,
+            "max_cell": int(agg_h["mx"]),
+            "histogram": [{"n": float(b["x"]), "cells": int(b["y"])}
+                          for b in (agg_h["h"] or [])],
+        }
+
+        def save_res(n_flag=0, n_clusters=0, med=None, seconds=None):
+            rst["n_flagged"] = int(n_flag)
+            rst["n_clusters"] = int(n_clusters)
+            if med is not None:
+                rst["median_frac"] = med
+            if seconds is not None:
+                rst["seconds"] = round(seconds, 1)
+            dump_json(rst, os.path.join(out_dir, "cells_{}_hist.json".format(d)))
+            res_stats.append({k: v for k, v in rst.items() if k != "histogram"})
+
         dense = cells.filter(F.col("n") >= thr)
         n_dense = dense.count()
+        rst["n_dense"] = int(n_dense)
         print("celdas densas:", n_dense)
         if n_dense == 0:
+            save_res(seconds=time.time() - t1)
             continue
 
         # 3. Pico cinemático por celda densa
@@ -176,11 +220,12 @@ def main(argv=None):
         n_flag = flagged.count()
         print(f"fracción mediana del pico: {med:.3f} | celdas con pico cinemático: {n_flag}")
         if n_flag == 0:
+            save_res(med=med, seconds=time.time() - t1)
             continue
 
         pm_stars = (stars.join(F.broadcast(flagged), ["j", "i", "bp", "br", "bd"])
                          .select("j", "i", "object_id", "ra", "dec", "parallax",
-                                 "pmra", "pmdec", "phot_g_mean_mag").persist())
+                                 "pmra", "pmdec", "phot_g_mean_mag", "bp_rp").persist())
         cs = (pm_stars.groupBy("j", "i")
                       .agg(F.avg("parallax"), F.avg("pmra"), F.avg("pmdec")).collect())
         cell_list = [(r[0], r[1], r[2], r[3], r[4]) for r in cs]
@@ -202,7 +247,10 @@ def main(argv=None):
             F.avg("dec").alias("dec_c"), F.avg("parallax").alias("plx"),
             F.avg("pmra").alias("pmra_m"), F.avg("pmdec").alias("pmdec_m"),
             F.stddev("parallax").alias("sdp"), F.stddev("pmra").alias("sdr"),
-            F.stddev("pmdec").alias("sdd"))
+            F.stddev("pmdec").alias("sdd"),
+            F.expr("percentile_approx(parallax, 0.5)").alias("plx_med"),
+            F.expr("percentile_approx(parallax, 0.16)").alias("plx_p16"),
+            F.expr("percentile_approx(parallax, 0.84)").alias("plx_p84"))
             .withColumn("ra_c", (F.col("ra_raw") + 360.0) % 360.0)
             .filter(F.col("n") >= p["min_members"]))
         cen = cen.persist()
@@ -218,12 +266,18 @@ def main(argv=None):
                              float(r["ra_c"]), float(r["dec_c"]), float(r["plx"]),
                              float(r["pmra_m"]), float(r["pmdec_m"]),
                              float(r["sdp"] or 0), float(r["sdr"] or 0),
-                             float(r["sdd"] or 0), float(r["rad"])))
-        print(f"clusters en esta resolución: {len(res)} | tiempo: {time.time() - t1:.1f} s")
+                             float(r["sdd"] or 0), float(r["rad"]),
+                             float(r["plx_med"]), float(r["plx_p16"]),
+                             float(r["plx_p84"])))
+        el = time.time() - t1
+        print(f"clusters en esta resolución: {len(res)} | tiempo: {el:.1f} s")
+        save_res(n_flag=n_flag, n_clusters=len(res), med=med, seconds=el)
         if p["write_members"]:
             members_dfs.append(members.select(
-                F.lit(d).alias("res"), "cid", "object_id", "ra", "dec",
-                "parallax", "pmra", "pmdec", "phot_g_mean_mag"))
+                F.lit(d).alias("res"), "cid",
+                F.col("object_id").cast("string").alias("object_id"),
+                "ra", "dec", "parallax", "pmra", "pmdec",
+                "phot_g_mean_mag", "bp_rp"))
 
     # 5. Duplicados entre resoluciones (se conserva el de más miembros)
     all_rows.sort(key=lambda r: -r[3])
@@ -241,14 +295,19 @@ def main(argv=None):
 
     final = []
     for n, r in enumerate(kept, 1):
-        # cluster_id, resolution, n_cells, n_members, ra, dec, plx, dist_pc, pmra, pmdec, sds, radio
+        # cluster_id, resolution, n_cells, n_members, ra, dec, plx, dist_pc, pmra, pmdec, sds,
+        # radio, y la banda de paralaje/distancia (mediana, p16, p84)
         final.append((n, r[0], r[2], r[3], r[4], r[5], r[6], 1000.0 / r[6], r[7], r[8],
-                      r[9], r[10], r[11], r[12]))
+                      r[9], r[10], r[11], r[12],
+                      r[13], 1000.0 / r[13], r[14], r[15],
+                      1000.0 / r[15], 1000.0 / r[14]))
     print(f"\nCandidatos totales: {len(all_rows)} | tras quitar duplicados: {len(final)}")
 
     cols = ["cluster_id", "resolution_deg", "n_cells", "n_members", "ra", "dec",
             "parallax", "dist_pc", "pmra", "pmdec", "sd_parallax", "sd_pmra",
-            "sd_pmdec", "radius_deg"]
+            "sd_pmdec", "radius_deg",
+            "plx_med", "dist_med_pc", "plx_p16", "plx_p84",
+            "dist_p16_pc", "dist_p84_pc"]
     if final:
         print("\n=== CLUSTERS ENCONTRADOS ===")
         print(f"{'cluster':>10} {'res':>5} {'celdas':>6} {'n':>5} {'ra':>9} {'dec':>9} "
@@ -259,7 +318,7 @@ def main(argv=None):
         if len(final) > 30:
             print(f"... ({len(final) - 30} más en {csv_out})")
 
-        os.makedirs(os.path.dirname(csv_out), exist_ok=True)
+        os.makedirs(out_dir, exist_ok=True)
         with open(csv_out, "w", newline="") as f:
             wr = csv.writer(f)
             wr.writerow(cols)
@@ -269,7 +328,8 @@ def main(argv=None):
         schema = ("cluster_id int, resolution_deg double, n_cells int, n_members int, "
                   "ra double, dec double, parallax double, dist_pc double, pmra double, "
                   "pmdec double, sd_parallax double, sd_pmra double, sd_pmdec double, "
-                  "radius_deg double")
+                  "radius_deg double, plx_med double, dist_med_pc double, plx_p16 double, "
+                  "plx_p84 double, dist_p16_pc double, dist_p84_pc double")
         tabla = spark.createDataFrame(final, schema)
         tabla.show(10, truncate=False)
         tabla.write.mode("overwrite").parquet(path_out)
@@ -285,13 +345,28 @@ def main(argv=None):
                 allm = allm.unionByName(m)
             out = (allm.join(F.broadcast(mapping), ["res", "cid"])
                        .select("cluster_id", "object_id", "ra", "dec", "parallax",
-                               "pmra", "pmdec", "phot_g_mean_mag"))
+                               "pmra", "pmdec", "phot_g_mean_mag", "bp_rp"))
             out.write.mode("overwrite").parquet(path_members)
             print("Miembros en HDFS:", path_members)
     else:
         print("No se encontraron clusters: baja kin_rel/min_peak o prueba otras resoluciones.")
 
-    print(f"\nTiempo total: {time.time() - t0:.1f} s")
+    elapsed = time.time() - t0
+    dump_json({
+        "method": "celdas",
+        "tag": args.tag,
+        "config": os.path.abspath(args.config),
+        "rows_total": n_total,
+        "rows_after_filter": n_filtered,
+        "resolutions": res_stats,
+        "candidates_pre_dedup": len(all_rows),
+        "clusters_final": len(final),
+        "params": {k: v for k, v in p.items() if not isinstance(v, dict)},
+        "seconds": round(elapsed, 1),
+        "outputs": {"csv": csv_out, "parquet": path_out, "members": path_members},
+    }, summary_out)
+
+    print(f"\nTiempo total: {elapsed:.1f} s")
     spark.stop()
     return 0
 

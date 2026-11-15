@@ -257,10 +257,87 @@ gastar 90 s en un fallo seguro.
 
 ---
 
+## H-19 · `eps` no es un detalle: de 16 a 23 candidatos, y con dos efectos opuestos
+
+**Medido.** Barrido de `eps` con el resto fijo (SNR ≥ 10, `G ≤ 18`, `min_pts = 8`):
+
+| | `eps = 1,0` | `eps = 1,2` |
+|---|---|---|
+| candidatos | 16 | 23 |
+| miembros | 15–245 | 15–569 |
+| distancias | 1.616–3.479 pc | 237–3.211 pc |
+| σ_pm interno | 2,3–15,2 km/s | 0,4–20,3 km/s |
+| σ_plx/plx | 0,07–0,32 | 0,01–0,38 |
+
+Los dos efectos van en direcciones distintas:
+
+- **Encadenamiento.** El grupo de 569 absorbe cuatro grupos de `eps = 1,0`
+  (117 + 112 + 37 + 18 = 284 miembros) y le suma 285 estrellas que antes eran ruido;
+  la dispersión resultante es 15,3 km/s. El de 433 crece desde 49.
+- **Detección nueva.** Aparecen 10 grupos en cinco regiones donde `eps = 1,0` no veía
+  nada (RA 171/−49, 211/−52, 108,7/+0,1, 314,9/+16,4 y RA 0,89/−29,9). El de 237 pc
+  tiene σ_plx/plx = 0,012 y σ_pm equivalente a **0,4 km/s**: es el único candidato de
+  toda la corrida con dispersión compatible con un cúmulo ligado.
+
+**Implicancia.** No hay un `eps` correcto en abstracto: subirlo recupera un grupo
+genuinamente ligado y a la vez funde cuatro poblaciones distintas en una sola. El informe
+presenta el compromiso con estas cifras; no elige uno y esconde el otro.
+
+Origen: corridas `dbscan_base` y `eps_1.2` del 2026-11-15 (`results/experiments/<tag>/`).
+
+---
+
+## H-20 · Bajar el SNR a 5 duplica los candidatos y rompe el acuerdo entre métodos
+
+**Medido.** Con `SNR ≥ 5` el filtro deja 1.127.902 filas (84,4 %) frente a 909.448
+(68,1 %) con `SNR ≥ 10`. El método por celdas pasa de **3 a 6** candidatos.
+
+Pero el acuerdo con DBSCAN se cae:
+
+| | SNR ≥ 10 | SNR ≥ 5 |
+|---|---|---|
+| separación al grupo DBSCAN más cercano | 0,014–0,025° | 0,062–**0,951°** |
+| paralaje en la misma posición | coincide | 0,228 vs 0,407; 0,207 vs 0,713 mas |
+
+Las distancias reportadas llegan a 4.829 pc con σ_plx/plx ≈ 0,20: ±20 % de distancia a
+1σ, o sea ±1.100 pc. El número de tres cifras no está sostenido por los datos.
+
+**Implicancia.** `SNR ≥ 10` no es una costumbre: con 5 el método por celdas empieza a
+reportar el pico de ruido del bin de paralaje en vez de la población real.
+
+Origen: corridas `celdas_base` y `snr5` del 2026-11-15.
+
+---
+
+## H-21 · El umbral de densidad es siempre el percentil 99, nunca μ+3σ
+
+**Medido.** En las tres resoluciones de la corrida `snr5`:
+
+| res | celdas no vacías | μ | σ | μ+3σ | p99 | umbral |
+|---|---|---|---|---|---|---|
+| 0,25° | 46.267 | 24,4 | 22,3 | 91,3 | 93 | **93** |
+| 0,5° | 13.056 | 86,4 | 74,0 | 308,4 | 334 | **334** |
+| 1,0° | 3.856 | 292,5 | 230,5 | 984,0 | 1.125 | **1.125** |
+
+El término `μ + 3σ` nunca gana, así que "celdas densas" es por construcción el 1 % de las
+celdas no vacías: 479/46.267, 132/13.056 y 39/3.856 (1,03 %, 1,01 %, 1,01 %).
+
+**Implicancia.** El criterio no es adaptativo por dispersión, es un cuantil fijo. Eso
+explica que el número de candidatos dependa de la resolución y no del contraste real de la
+región. Hay que decirlo así en el informe, y el campo `threshold_source` de
+`cells_<res>_hist.json` lo deja registrado por corrida.
+
+Origen: `cells_<res>_hist.json` de la corrida `snr5`.
+
+---
+
 ## Pendientes
 
-- [ ] Volcar la tabla de celdas y los umbrales calculados (hoy se usan y se descartan). Los
-      del análisis previo (217,9 y 107,0) salieron de una tabla sobrecontada y no sirven.
+- [x] Umbrales de densidad volcados por resolución (`cells_<res>_hist.json`, campo
+      `threshold_source`). La tabla completa de celdas no se versiona: el histograma
+      alcanza para la figura y para verificar los umbrales.
+- [ ] Decidir si el umbral por percentil se reemplaza por uno absoluto o por contraste
+      local (H-21); hoy el 1 % es una convención.
 - [x] Candidatos detectados por dos métodos independientes (H-13), con coincidencia espacial
       (H-15).
 - [ ] Criterio cinemático con errores formales (`T_obs` vs `T_error`, σ_plx/plx ≤ 0,5): **no

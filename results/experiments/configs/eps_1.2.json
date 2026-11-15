@@ -1,0 +1,97 @@
+{
+  "dataset": {
+    "repo": "UniverseTBD/mmu_gaia_gaia",
+    "partition": "Norder=4/Dir=0",
+    "url_api": "https://huggingface.co/api/datasets/UniverseTBD/mmu_gaia_gaia/tree/main/mmu_gaia_gaia/dataset/Norder%3D4/Dir%3D0",
+    "url_resolve": "https://huggingface.co/datasets/UniverseTBD/mmu_gaia_gaia/resolve/main/"
+  },
+  "hdfs": {
+    "uri": "hdfs://cm:9000",
+    "project": "/data/2026/uhadoop/teatime/gaia",
+    "merged": "/data/2026/uhadoop/teatime/gaia/gaia_mmu_merged.parquet",
+    "clusters_dbscan": "/data/2026/uhadoop/teatime/gaia/gaia_clusters.parquet",
+    "clusters_celdas": "/data/2026/uhadoop/teatime/gaia/gaia_clusters_celdas.parquet",
+    "members_celdas": "/data/2026/uhadoop/teatime/gaia/gaia_cluster_members_celdas.parquet"
+  },
+  "local": {
+    "raw": "raw",
+    "results": "results"
+  },
+  "download": {
+    "workers": 6
+  },
+  "spark": {
+    "parts": 32,
+    "shuffle_partitions": 32
+  },
+  "binning": {
+    "verify_res_deg": 0.25
+  },
+  "clusters": {
+    "min_plx_snr": 10.0,
+    "max_gmag": 18.0,
+    "dbscan": {
+      "scale_pos": 0.5,
+      "scale_plx": 0.15,
+      "scale_pm": 0.5,
+      "eps": 1.2,
+      "min_pts": 8,
+      "min_members": 15,
+      "max_stars_per_tile": 30000,
+      "num_partitions": 64,
+      "merge": {
+        "pos_deg": 0.5,
+        "plx": 0.15,
+        "pm": 0.5
+      }
+    },
+    "celdas": {
+      "resolutions_deg": [
+        0.25,
+        0.5,
+        1.0
+      ],
+      "min_cell_stars": 15,
+      "sigma_k": 3.0,
+      "percentile": 0.99,
+      "bin_plx": 0.3,
+      "bin_pm": 1.0,
+      "min_peak": 10,
+      "kin_rel": 2.0,
+      "merge": {
+        "plx": 0.3,
+        "pm": 1.0
+      },
+      "min_members": 15,
+      "write_members": true
+    }
+  },
+  "validation": {
+    "probes": [
+      {
+        "name": "M7",
+        "ra": 268.5,
+        "dec": -34.8,
+        "dist_pc_ref": 300
+      },
+      {
+        "name": "Pleyades",
+        "ra": 56.75,
+        "dec": 24.12,
+        "dist_pc_ref": 136
+      },
+      {
+        "name": "Hiades",
+        "ra": 66.5,
+        "dec": 15.9,
+        "dist_pc_ref": 47
+      },
+      {
+        "name": "Pesebre",
+        "ra": 130.1,
+        "dec": 19.7,
+        "dist_pc_ref": 187
+      }
+    ]
+  }
+}

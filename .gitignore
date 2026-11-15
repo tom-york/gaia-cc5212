@@ -8,7 +8,7 @@ pylibs/
 *.zip
 
 # Salidas grandes: se transportan por rsync, no por git
-results/experiments/cells_*.csv
+results/**/cells_*.csv
 results/**/*.log
 results/parts/
 

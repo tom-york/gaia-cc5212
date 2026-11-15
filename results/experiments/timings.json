@@ -1,0 +1,62 @@
+[
+  {
+    "tag": "dbscan_base",
+    "method": "dbscan",
+    "overrides": "",
+    "config": "results/experiments/configs/dbscan_base.json",
+    "wall_s": 141.8,
+    "spark_s": 132.4,
+    "rc": 0,
+    "finished": "2026-11-15T11:47:33"
+  },
+  {
+    "tag": "eps_0.8",
+    "method": "dbscan",
+    "overrides": "clusters.dbscan.eps=0.8",
+    "config": "results/experiments/configs/eps_0.8.json",
+    "wall_s": 147.2,
+    "spark_s": 138.6,
+    "rc": 0,
+    "finished": "2026-11-15T11:50:01"
+  },
+  {
+    "tag": "eps_1.2",
+    "method": "dbscan",
+    "overrides": "clusters.dbscan.eps=1.2",
+    "config": "results/experiments/configs/eps_1.2.json",
+    "wall_s": 145.0,
+    "spark_s": 135.8,
+    "rc": 0,
+    "finished": "2026-11-15T11:52:26"
+  },
+  {
+    "tag": "celdas_base",
+    "method": "celdas",
+    "overrides": "",
+    "config": "results/experiments/configs/celdas_base.json",
+    "wall_s": 173.5,
+    "spark_s": 165.4,
+    "rc": 0,
+    "finished": "2026-11-15T11:55:19"
+  },
+  {
+    "tag": "kin_rel_1.5",
+    "method": "celdas",
+    "overrides": "clusters.celdas.kin_rel=1.5",
+    "config": "results/experiments/configs/kin_rel_1.5.json",
+    "wall_s": 171.4,
+    "spark_s": 163.6,
+    "rc": 0,
+    "finished": "2026-11-15T11:58:11"
+  },
+  {
+    "tag": "snr5",
+    "method": "celdas",
+    "overrides": "clusters.min_plx_snr=5",
+    "config": "results/experiments/configs/snr5.json",
+    "wall_s": 185.3,
+    "spark_s": 177.2,
+    "rc": 0,
+    "finished": "2026-11-15T12:01:16"
+  }
+]
