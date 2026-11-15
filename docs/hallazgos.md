@@ -238,15 +238,22 @@ no usarlas para afirmar pertenencia.
 
 ---
 
-## H-18 · El archivo de numpy para los ejecutores es probablemente innecesario
+## H-18 · numpy en los ejecutores: el archivo sí hace falta
 
-**Hipótesis (no verificada).** `--archives pylibs.zip#pylibs` con `PYTHONPATH=./pylibs` solo
-funciona si el zip tiene `numpy/` en la raíz. El árbol que se versionó era
-`pylibs/libs/numpy/`, que no calza con esa ruta. Como el job corrió igual, lo más probable es
-que los contenedores ya vieran el numpy del nodo borde y el archivo nunca se usara.
+**Medido (2026-11-15).** Una corrida de `run_clusters.sh --method dbscan` sin
+`pylibs/pylibs.zip` terminó con `rc = 1` y `ModuleNotFoundError: No module named 'numpy'`
+en los workers, tras **92,8 s** de aplicación. El driver sí tiene numpy: el error aparece al
+importar en los ejecutores, no al arrancar.
 
-**Cómo verificarlo.** Una corrida de `run_clusters.sh --method dbscan` sin `pylibs/`; si
-funciona, el archivo sobra. Pendiente.
+**Corrige la hipótesis anterior.** Los contenedores de YARN no ven el numpy del nodo borde,
+así que `pylibs/pylibs.zip` es parte del runtime de DBSCAN, no un adorno. El zip correcto
+tiene `numpy/` en la raíz (18 MB, 1.643 entradas), que es exactamente lo que
+`PYTHONPATH=./pylibs` necesita; el árbol `pylibs/libs/numpy/` que se había versionado no
+calzaba con esa ruta.
+
+**Implicancia.** Se regenera con `scripts/make_pylibs.sh` o se copia por rsync; el método
+por celdas no lo necesita. `run_clusters.sh` ahora aborta con código 3 si falta, en vez de
+gastar 90 s en un fallo seguro.
 
 ---
 
@@ -262,4 +269,5 @@ funciona, el archivo sobra. Pendiente.
 - [ ] Cruce con SIMBAD y con Hunt & Reffert (2023).
 - [ ] Ablación del filtro ingenuo (`isNotNull()` sin `isnan`): cuantificar cuántas celdas
       quedan envenenadas. Evidencia opcional para la rúbrica.
-- [ ] Verificar H-18 (si numpy es realmente necesario en los ejecutores).
+- [x] H-18 verificado: numpy en los ejecutores es necesario; el zip se regenera con
+      `scripts/make_pylibs.sh`.

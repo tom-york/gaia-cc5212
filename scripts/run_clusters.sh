@@ -53,9 +53,27 @@ run_spark() {
   fi
 }
 
-# numpy solo hace falta en los ejecutores para DBSCAN. Si el clúster ya lo tiene,
-# borra pylibs/ y este bloque desaparece solo (ver README, sección Reproducir).
-if [[ "$METHOD" == "dbscan" && -f pylibs/pylibs.zip ]]; then
+# numpy solo hace falta en los ejecutores para DBSCAN. Sin el archivo la app
+# arranca, lee los datos y muere al importar en los workers (~90 s perdidos),
+# así que se aborta antes. GAIA_SKIP_NUMPY_CHECK=1 si los ejecutores ya lo tienen.
+USE_ARCHIVE=0
+if [[ "$METHOD" == "dbscan" ]]; then
+  if [[ -f pylibs/pylibs.zip ]]; then
+    USE_ARCHIVE=1
+  elif [[ "${GAIA_SKIP_NUMPY_CHECK:-0}" == "1" ]]; then
+    echo "AVISO: se corre sin pylibs/ (GAIA_SKIP_NUMPY_CHECK=1)" >&2
+  else
+    echo "ERROR: DBSCAN importa numpy en los ejecutores y no existe pylibs/pylibs.zip." >&2
+    echo "       Generarlo en el nodo borde:  bash scripts/make_pylibs.sh" >&2
+    echo "       O copiarlo desde tu maquina:" >&2
+    echo "         rsync -av -e 'ssh -p 220' pylibs/pylibs.zip \\" >&2
+    echo "           uhadoop@cm.dcc.uchile.cl:~/teatime/gaia/gaia-cc5212/pylibs/" >&2
+    echo "       Si los ejecutores ya tienen numpy: export GAIA_SKIP_NUMPY_CHECK=1" >&2
+    exit 3
+  fi
+fi
+
+if [[ $USE_ARCHIVE -eq 1 ]]; then
   run_spark "${GAIA_CONF[@]}" \
     --archives pylibs/pylibs.zip#pylibs \
     --conf spark.executorEnv.PYTHONPATH=./pylibs \
