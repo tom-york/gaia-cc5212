@@ -58,17 +58,21 @@ con el número medido, su origen y su implicancia para el informe. Titulares:
 ## Estructura
 
 ```
-config.json               resolución, umbrales, criterio cinemático y rutas
+config.json               parámetros y rutas (única fuente de verdad)
 src/common.py             config, rutas, logging, saneamiento de tipos
 src/download.py           descarga Norder=4/Dir=0 a raw/ (solo requests)
 src/stage.py              unificación a Parquet de 12 columnas en HDFS (YARN)
-src/pipeline.py           (pendiente) celdas, umbrales, cinemática, candidatos
+src/clusters_dbscan.py    DBSCAN 5D por baldosa (numpy en los ejecutores)
+src/clusters_celdas.py    celdas de área ~constante + pico cinemático (Spark SQL)
 src/figures.py            (pendiente) mapas y diagramas
 scripts/yarn_env.sh       flags de spark-submit validados en el clúster
 scripts/stage_data.sh     preflight + descarga + unificación + HDFS
-scripts/run_experiments.sh (pendiente) 4 configuraciones y tiempos
+scripts/run_clusters.sh   corre cualquiera de los dos detectores (--method)
+scripts/make_pylibs.sh    genera pylibs.zip con numpy (no versionado)
+scripts/inspect_schema.py imprime el esquema del Parquet unificado
+scripts/run_experiments.sh (pendiente) barrido de parámetros y tiempos
 docs/hallazgos.md         bitácora de hallazgos con evidencia y pendientes
-results/                  resúmenes JSON, tablas CSV y tiempos
+results/                  resúmenes JSON, tablas CSV, figuras y tiempos
 raw/                      parquet crudos (no versionado)
 ```
 
@@ -80,23 +84,42 @@ screen -S gaia
 bash scripts/stage_data.sh 2>&1 | tee results/stage_run.log
 # Ctrl-A D para salir sin matar la sesión; screen -r gaia para volver
 
-# 2. análisis (pendiente)
+# 2. detección de candidatos
+bash scripts/run_clusters.sh --method celdas   # Spark SQL puro
+bash scripts/run_clusters.sh --method dbscan   # DBSCAN 5D (numpy en ejecutores)
+
+# 3. experimentos y tiempos (pendiente)
 bash scripts/run_experiments.sh
 ```
+
+Cada corrida deja su log en `results/clusters_<método>_run.log` (no versionado) y su
+tabla en `results/clusters_<método>.csv`.
+
+DBSCAN necesita numpy en los contenedores de YARN. Si no lo ven, `scripts/make_pylibs.sh`
+genera `pylibs/pylibs.zip` (numpy con `numpy/` en la raíz, de modo que
+`--archives pylibs.zip#pylibs` + `PYTHONPATH=./pylibs` lo resuelva) y
+`scripts/run_clusters.sh` lo agrega solo cuando el archivo existe. El método por celdas
+no requiere ninguna librería extra.
 
 Variables de entorno útiles: `GAIA_RAW_DIR` (dónde bajar los crudos; por defecto `raw/`),
 `GAIA_MASTER` (por defecto `yarn`; `local[6]` es el plan B sin YARN),
 `GAIA_NUM_EXECUTORS`, `GAIA_EXEC_MEMORY`.
 
-Transporte entre la máquina local y el clúster (el cluster solo escribe en `results/`):
+Transporte entre la máquina local y el clúster. El repositorio vive en
+`~/teatime/gaia/gaia-cc5212` en el nodo borde (el mismo prefijo que la raíz HDFS) y el
+clúster solo escribe en `results/`:
 
 ```bash
 rsync -av --delete --exclude .git --exclude raw --exclude results \
-  -e 'ssh -p 220' ./ uhadoop@cm.dcc.uchile.cl:~/gaia-cc5212/
+  --exclude libs --exclude pylibs \
+  -e 'ssh -p 220' ./ uhadoop@cm.dcc.uchile.cl:~/teatime/gaia/gaia-cc5212/
 
 rsync -av -e 'ssh -p 220' \
-  uhadoop@cm.dcc.uchile.cl:~/gaia-cc5212/results/ ./results/
+  uhadoop@cm.dcc.uchile.cl:~/teatime/gaia/gaia-cc5212/results/ ./results/
 ```
+
+`libs/` y `pylibs/` se excluyen porque se generan en el nodo borde con
+`scripts/make_pylibs.sh`; no se versionan.
 
 ## Decisiones de diseño
 
@@ -126,8 +149,13 @@ rsync -av -e 'ssh -p 220' \
 - **`config.json`, no YAML.** PyYAML no está garantizado en el clúster.
 - **Ruta HDFS corregida.** El plan original usaba `/uhadoop2026/projects/grupo3`;
   la raíz real del proyecto es `/data/2026/uhadoop/teatime/gaia`.
-- **Sin UDFs de Python** y `collect()` solo sobre tablas ya agregadas (celdas,
-  candidatos, tiempos).
+- **Dos métodos, un mismo Parquet.** DBSCAN 5D no impone una grilla, pero es O(n²) por
+  baldosa; las celdas son O(n) y escalan mejor, pero dependen de umbrales. Se reportan
+  ambos y se comparan entre sí.
+- **Spark SQL salvo donde no alcanza.** El método por celdas es Spark SQL puro, sin UDFs.
+  DBSCAN corre en numpy sobre las estrellas agrupadas por baldosa: una excepción
+  deliberada, porque una UDF por fila sería órdenes de magnitud más lenta. `collect()`
+  solo se usa sobre tablas ya agregadas (celdas, candidatos, tiempos).
 
 ## Estado
 
@@ -135,9 +163,11 @@ rsync -av -e 'ssh -p 220' \
       distribuida en YARN con `source_tile` y los 3 errores astrométricos, contabilidad
       de nulos/NaN y test de duplicados y celdas por baldosa. Resultado en
       `results/stage_summary.json`; lectura en `docs/hallazgos.md`.
-- [ ] Pipeline: celdas por resolución, umbrales μ+3σ y percentil 99, criterio
-      cinemático relativo, fusión de celdas contiguas.
-- [ ] Experimentos: 4 configuraciones × mitigación de skew, con tiempos.
+- [x] Detección de candidatos (2026-11-15): dos métodos independientes sobre el mismo
+      Parquet — DBSCAN 5D por baldosa (`src/clusters_dbscan.py`) y celdas de área
+      ~constante con pico cinemático (`src/clusters_celdas.py`). Tablas en
+      `results/clusters.csv` y `results/clusters_celdas.csv`.
+- [ ] Experimentos: barrido de `eps`/`min_pts` y de resolución/umbral, con tiempos.
 - [ ] Figuras: densidad con `LogNorm`, `pmra` vs `pmdec`, color–magnitud.
 - [ ] Validación: M7, SIMBAD, Hunt & Reffert (2023).
 
@@ -147,8 +177,9 @@ rsync -av -e 'ssh -p 220' \
   no todo Gaia ni todo el cielo; las regiones densas del plano galáctico están
   subrepresentadas por construcción de HATS.
 - Binning rectangular en RA/Dec: las celdas tienen área distinta (factor `cos dec`).
-- El criterio cinemático absoluto depende de la distancia; por eso el pipeline usa
-  un criterio relativo a las celdas vecinas más coherencia de paralaje.
+- El criterio cinemático absoluto (dispersión de movimiento propio < 3 mas/año) depende
+  de la distancia y del entorno; el método por celdas usa en su lugar un pico cinemático
+  relativo a la mediana de las celdas densas.
 - Los candidatos no están confirmados como cúmulos ligados.
 - Con ~1,4 M filas Spark no es estrictamente necesario: su valor es que el mismo
   código escala al catálogo Gaia completo. Los tiempos por configuración y por

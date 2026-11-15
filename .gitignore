@@ -2,11 +2,15 @@
 raw/
 *.part
 
+# Dependencias vendorizadas: se generan con scripts/make_pylibs.sh
+libs/
+pylibs/
+*.zip
+
 # Salidas grandes: se transportan por rsync, no por git
 results/cells_*.csv
 results/*.log
 results/parts/
-results/figures/*.png
 
 # Basura de Python
 __pycache__/
