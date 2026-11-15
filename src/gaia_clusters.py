@@ -15,9 +15,9 @@ from pyspark.sql import SparkSession
 BASE = "hdfs://cm:9000/data/2026/uhadoop/teatime/gaia"
 PATH_IN = f"{BASE}/gaia_mmu_merged.parquet"
 PATH_OUT = f"{BASE}/gaia_clusters.parquet"
-CSV_OUT = "results/clusters.csv"          # relativo a donde ejecutes (raíz del repo)
+CSV_OUT = "results/clusters.csv"
 
-# Filtro de calidad
+# Filtros
 MIN_PLX_SNR = 10.0      # parallax / parallax_error
 MAX_GMAG = 18.0         # descarta estrellas débiles (más ruido, más filas)
 
@@ -114,7 +114,6 @@ def find_clusters(tile, pts):
 
 
 # ----------------------------- FUSIÓN EN DRIVER ------------------------------
-# tupla: 0 tile, 1 n, 2 ra, 3 dec, 4 plx, 5 pmra, 6 pmdec, 7 sd_plx, 8 sd_pmra, 9 sd_pmdec, 10 rad
 def merge_clusters(cl):
     n = len(cl)
     if n == 0:
