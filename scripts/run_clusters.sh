@@ -2,15 +2,19 @@
 # Corre uno de los dos detectores de candidatos sobre el Parquet unificado.
 #   bash scripts/run_clusters.sh --method celdas   # solo Spark SQL
 #   bash scripts/run_clusters.sh --method dbscan   # DBSCAN 5D, numpy en ejecutores
+#   bash scripts/run_clusters.sh --method dbscan --config results/experiments/configs/eps_0.8.json
 set -euo pipefail
 
+ORIG_PWD="$PWD"
 cd "$(dirname "$0")/.."
 
 METHOD="dbscan"
+CONFIG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --method) METHOD="${2:?falta el valor de --method}"; shift 2 ;;
-    -h|--help) sed -n '2,4p' "$0"; exit 0 ;;
+    --config) CONFIG="${2:?falta el valor de --config}"; shift 2 ;;
+    -h|--help) sed -n '2,5p' "$0"; exit 0 ;;
     *) echo "argumento desconocido: $1" >&2; exit 2 ;;
   esac
 done
@@ -20,6 +24,16 @@ case "$METHOD" in
   celdas) SCRIPT="src/clusters_celdas.py" ;;
   *) echo "método inválido: $METHOD (dbscan|celdas)" >&2; exit 2 ;;
 esac
+
+# Las rutas relativas se resuelven contra el directorio desde donde se invocó,
+# no contra la raíz del repo (ya hicimos cd).
+if [[ -n "$CONFIG" && "$CONFIG" != /* ]]; then
+  CONFIG="$ORIG_PWD/$CONFIG"
+fi
+CONFIG_ARGS=()
+if [[ -n "$CONFIG" ]]; then
+  CONFIG_ARGS=(--config "$CONFIG")
+fi
 
 source scripts/yarn_env.sh
 gaia_spark_conf
@@ -45,7 +59,7 @@ if [[ "$METHOD" == "dbscan" && -f pylibs/pylibs.zip ]]; then
   run_spark "${GAIA_CONF[@]}" \
     --archives pylibs/pylibs.zip#pylibs \
     --conf spark.executorEnv.PYTHONPATH=./pylibs \
-    "$SCRIPT"
+    "$SCRIPT" ${CONFIG_ARGS[@]+"${CONFIG_ARGS[@]}"}
 else
-  run_spark "${GAIA_CONF[@]}" "$SCRIPT"
+  run_spark "${GAIA_CONF[@]}" "$SCRIPT" ${CONFIG_ARGS[@]+"${CONFIG_ARGS[@]}"}
 fi

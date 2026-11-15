@@ -39,6 +39,8 @@ con el número medido, su origen y su implicancia para el informe. Titulares:
   es verdadero en Spark: sin filtrar `isnan()` se envenenan las agregaciones (H-03).
 - El máximo real por celda de 0,25° es 847 estrellas, no las 5.738 del análisis previo (H-05).
 - La partición cubre 8,6 % del cielo, no todo el cielo (H-06).
+- Dos detectores independientes dan 16 y 3 candidatos; sus dispersiones internas
+  (2,3–15,1 km/s) indican asociaciones, no cúmulos ligados (H-13, H-14).
 
 ## Entorno del clúster
 
@@ -70,7 +72,7 @@ scripts/stage_data.sh     preflight + descarga + unificación + HDFS
 scripts/run_clusters.sh   corre cualquiera de los dos detectores (--method)
 scripts/make_pylibs.sh    genera pylibs.zip con numpy (no versionado)
 scripts/inspect_schema.py imprime el esquema del Parquet unificado
-scripts/run_experiments.sh (pendiente) barrido de parámetros y tiempos
+scripts/run_experiments.sh barrido de configuraciones con tiempos
 docs/hallazgos.md         bitácora de hallazgos con evidencia y pendientes
 results/                  resúmenes JSON, tablas CSV, figuras y tiempos
 raw/                      parquet crudos (no versionado)
@@ -121,6 +123,44 @@ rsync -av -e 'ssh -p 220' \
 `libs/` y `pylibs/` se excluyen porque se generan en el nodo borde con
 `scripts/make_pylibs.sh`; no se versionan.
 
+## Experimentos
+
+El barrido mide dos cosas: **costo** (tiempo de pared) y **sensibilidad** (cuántos
+candidatos aparecen) al mover parámetros que hoy están fijos en `config.json`. Cada
+variante se materializa como un `config.json` propio en `results/experiments/configs/`,
+así que la corrida queda auditable sin tocar el config del repositorio.
+
+| Eje | Valores de la matriz por defecto |
+|---|---|
+| método | `dbscan` y `celdas` (una corrida base por método) |
+| `clusters.dbscan.eps` | 1,0 (base), 0,8, 1,2 |
+| `clusters.celdas.kin_rel` | 2,0 (base), 1,5 |
+| `clusters.min_plx_snr` | 10 (base), 5 |
+
+Fijo en todas: `max_gmag = 18`, 8 ejecutores, `GAIA_MASTER=yarn`.
+
+```bash
+bash scripts/run_experiments.sh --dry-run      # imprime la matriz, no ejecuta
+bash scripts/run_experiments.sh                # corre las 6 variantes
+bash scripts/run_experiments.sh --only celdas  # solo un método
+bash scripts/run_experiments.sh --tag eps_1.2  # una sola variante
+```
+
+Cada corrida agrega un registro a `results/experiments/timings.json`:
+
+| Campo | Qué es |
+|---|---|
+| `wall_s` | punta a punta del `spark-submit`, incluye el arranque en YARN |
+| `spark_s` | el `Tiempo total` que imprime el script, sin arranque |
+| `tag`, `method`, `overrides`, `rc` | trazabilidad: qué config se usó y cómo terminó |
+
+`wall_s − spark_s` es el costo de arranque de la aplicación (~40 s medidos en H-09). Va
+declarado en el informe, no restado en silencio.
+
+**Cuidado con los rótulos.** El plan de Spark es perezoso: la lectura del Parquet ocurre
+dentro del primer job que la necesita, no donde el código la declara (H-09). Los tiempos por
+etapa que imprimen los scripts son de los jobs de Spark, no de las líneas de Python.
+
 ## Decisiones de diseño
 
 - **NaN no es null.** Los faltantes astrométricos vienen como `NaN` y Spark los deja
@@ -167,7 +207,8 @@ rsync -av -e 'ssh -p 220' \
       Parquet — DBSCAN 5D por baldosa (`src/clusters_dbscan.py`) y celdas de área
       ~constante con pico cinemático (`src/clusters_celdas.py`). Tablas en
       `results/clusters_dbscan.csv` y `results/clusters_celdas.csv`.
-- [ ] Experimentos: barrido de `eps`/`min_pts` y de resolución/umbral, con tiempos.
+- [ ] Experimentos: runner listo (`scripts/run_experiments.sh`, 6 variantes); falta
+      correrlo en el clúster y llenar `results/experiments/timings.json`.
 - [ ] Figuras: densidad con `LogNorm`, `pmra` vs `pmdec`, color–magnitud.
 - [ ] Validación: M7, SIMBAD, Hunt & Reffert (2023).
 

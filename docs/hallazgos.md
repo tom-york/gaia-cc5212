@@ -160,12 +160,106 @@ explicarla más allá de lo que se puede verificar.
 
 ---
 
+## H-13 · Dos detectores sobre el mismo Parquet dan 16 y 3 candidatos
+
+**Medido.** Mismo filtro de calidad (`parallax > 0`, `parallax/parallax_error ≥ 10`,
+`G ≤ 18`) y mismas columnas para los dos métodos.
+
+- DBSCAN 5D por baldosa (`eps = 1,0` en espacio normalizado, `min_pts = 8`,
+  `min_members = 15`): **16 candidatos**, de 15 a 245 miembros.
+- Celdas de área ~constante con pico cinemático (`k = 3`, p99, `kin_rel = 2,0`,
+  resoluciones 0,25/0,5/1,0°): **3 candidatos**, de 21 a 29 miembros.
+
+Origen: `results/clusters_dbscan.csv` y `results/clusters_celdas.csv`.
+
+**Implicancia.** No hay una cifra única de "cúmulos encontrados": el informe presenta los
+dos métodos y sus criterios, no un total agregado.
+
+---
+
+## H-14 · Los 16 candidatos de DBSCAN no son cúmulos ligados
+
+**Medido.** Sobre `results/clusters_dbscan.csv`: dispersión interna de movimiento propio
+σ_pm = 0,27–1,13 mas/año, que a la paralaje de cada grupo equivale a **2,3–15,1 km/s**
+(v = 4,7405·σ_pm/plx); dispersión relativa de paralaje σ_plx/plx = **0,07–0,32**;
+distancias 1,6–3,5 kpc.
+
+**Comparación (cita, no medición nuestra).** Un cúmulo abierto ligado tiene dispersión
+interna ≲ 1–2 km/s y σ_plx/plx ≲ 0,05 a esas distancias.
+
+**Implicancia.** Lo detectado son asociaciones jóvenes / sobre-densidades del disco, no
+cúmulos ligados. Es la conclusión interpretativa del informe y va con estas cifras. El
+candidato 1 (245 miembros, 15,1 km/s, σ_plx/plx = 0,32) es el caso más claro.
+
+---
+
+## H-15 · Los dos métodos coinciden en las mismas 3 regiones
+
+**Medido.** Cada uno de los 3 candidatos por celdas tiene un grupo de DBSCAN a
+**0,014–0,025°** de distancia angular. Las paralajes, en cambio, no coinciden: en la región
+de celdas 1, DBSCAN separa cuatro grupos con plx = 0,388, 0,480, 0,532 y 0,619 mas,
+mientras celdas 1 reporta una sola con 0,454 mas. Con `BIN_PLX = 0,3` mas, tres de esos
+cuatro grupos caen en el mismo bin.
+
+**Implicancia.** La coincidencia espacial valida la detección (dos métodos independientes
+ven lo mismo), pero el método por celdas **promedia estructura en profundidad**: sirve para
+decir "hay algo ahí", no para fijar la distancia.
+
+---
+
+## H-16 · El método por celdas depende de la resolución
+
+**Medido.** `results/clusters_celdas.csv`: 1 candidato a 0,5° (`n_cells = 2`), 2 a 1,0°
+(`n_cells = 1` cada uno) y **ninguno a 0,25°**. El umbral de densidad es
+`max(μ + 3σ, p99, 15)` y el criterio cinemático exige que la fracción del pico supere
+`2 × mediana` de las celdas densas.
+
+**Implicancia.** A 1° cada celda abarca ~1 deg², así que el grupo no queda localizado (el
+radio reportado se calcula sobre las estrellas del pico, no sobre la celda); a 0,25° el
+criterio autorreferente no deja pasar nada. Sin barrido de `kin_rel` no se puede afirmar que
+3 sea el número correcto: el informe lo presenta como sensibilidad, no como censo.
+
+---
+
+## H-17 · Las distancias tienen dos sesgos conocidos
+
+**Aritmética sobre valores de literatura (no medición).** Ambos métodos usan
+`d = 1000/⟨plx⟩`.
+
+- **Jensen.** `1/⟨plx⟩` no es el promedio de las distancias individuales:
+  `E[1/plx] ≥ 1/E[plx]`. Usar la media de plx subestima la distancia media, y es sensible a
+  las colas.
+- **Punto cero.** El paralaje de DR3 tiene un punto cero de ≈ −0,017 mas. A plx = 0,350 mas
+  eso es ~5 % de sobreestimación de la distancia (1000/0,350 = 2.857 pc frente a
+  1000/0,367 = 2.725 pc).
+
+**Implicancia.** Citar distancias con banda y decir que son estimaciones, no mediciones;
+no usarlas para afirmar pertenencia.
+
+---
+
+## H-18 · El archivo de numpy para los ejecutores es probablemente innecesario
+
+**Hipótesis (no verificada).** `--archives pylibs.zip#pylibs` con `PYTHONPATH=./pylibs` solo
+funciona si el zip tiene `numpy/` en la raíz. El árbol que se versionó era
+`pylibs/libs/numpy/`, que no calza con esa ruta. Como el job corrió igual, lo más probable es
+que los contenedores ya vieran el numpy del nodo borde y el archivo nunca se usara.
+
+**Cómo verificarlo.** Una corrida de `run_clusters.sh --method dbscan` sin `pylibs/`; si
+funciona, el archivo sobra. Pendiente.
+
+---
+
 ## Pendientes
 
-- [ ] Umbrales μ+3σ y percentil 99 calculados sobre **nuestra** tabla de celdas (los del
-      análisis previo, 217,9 y 107,0, salieron de una tabla sobrecontada).
-- [ ] Candidatos con los tres criterios cinemáticos y fusión de celdas contiguas.
+- [ ] Volcar la tabla de celdas y los umbrales calculados (hoy se usan y se descartan). Los
+      del análisis previo (217,9 y 107,0) salieron de una tabla sobrecontada y no sirven.
+- [x] Candidatos detectados por dos métodos independientes (H-13), con coincidencia espacial
+      (H-15).
+- [ ] Criterio cinemático con errores formales (`T_obs` vs `T_error`, σ_plx/plx ≤ 0,5): **no
+      implementado**. Va como limitación del trabajo, no como resultado.
 - [ ] Probes de validación: M7 (268,5 / −34,8), Pléyades, Híades, Pesebre.
 - [ ] Cruce con SIMBAD y con Hunt & Reffert (2023).
 - [ ] Ablación del filtro ingenuo (`isNotNull()` sin `isnan`): cuantificar cuántas celdas
       quedan envenenadas. Evidencia opcional para la rúbrica.
+- [ ] Verificar H-18 (si numpy es realmente necesario en los ejecutores).
