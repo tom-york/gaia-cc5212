@@ -2,49 +2,26 @@
 # Detección de candidatos a clusters estelares por CELDAS (todo en Spark SQL,
 # no necesita numpy ni otras librerías en los ejecutores):
 #   1. Grilla del cielo de área ~constante a varias resoluciones.
-#   2. Celdas densas: conteo >= max(mu + 3*sigma, percentil 99) de los conteos.
+#   2. Celdas densas: conteo >= max(mu + k*sigma, percentil 99) de los conteos.
 #   3. Criterio cinemático relativo: dentro de cada celda densa se busca el
 #      "pico" en (paralaje, pmra, pmdec); se acepta si la fracción de estrellas
-#      en ese pico supera KIN_REL veces la mediana de las celdas densas.
+#      en ese pico supera kin_rel veces la mediana de las celdas densas.
 #   4. Fusión de celdas contiguas con cinemática parecida -> un cluster.
 #   5. Eliminación de duplicados entre resoluciones y tabla final.
+#
+# Parámetros en config.json (sección "clusters"). Uso:
+#   spark-submit src/clusters_celdas.py [--config config.json]
+import argparse
 import csv
 import math
 import os
+import sys
 import time
 
 from pyspark.sql import SparkSession, Window, functions as F
 
-# ----------------------------- PARÁMETROS ------------------------------------
-BASE = "hdfs://cm:9000/data/2026/uhadoop/teatime/gaia"
-PATH_IN = f"{BASE}/gaia_mmu_merged.parquet"
-PATH_OUT = f"{BASE}/gaia_clusters_celdas.parquet"
-PATH_MEMBERS = f"{BASE}/gaia_cluster_members_celdas.parquet"
-CSV_OUT = "results/clusters_celdas.csv"   # relativo a donde ejecutes (raíz del repo)
-WRITE_MEMBERS = True                      # guarda object_id -> cluster_id en HDFS
-
-# Filtro de calidad (igual que en la versión DBSCAN)
-MIN_PLX_SNR = 10.0
-MAX_GMAG = 18.0
-
-# Resolución de las celdas (grados de lado, aprox.)
-RESOLUTIONS = [0.25, 0.5, 1.0]
-
-# Celdas densas
-MIN_CELL_STARS = 15     # piso absoluto de estrellas por celda
-SIGMA_K = 3.0           # umbral mu + K*sigma
-PERCENTILE = 0.99       # umbral percentil
-
-# Pico cinemático dentro de la celda
-BIN_PLX = 0.3           # mas
-BIN_PM = 1.0            # mas/año
-MIN_PEAK = 10           # estrellas mínimas en el pico
-KIN_REL = 2.0           # fracción del pico >= KIN_REL * mediana de celdas densas
-
-# Fusión de celdas contiguas y duplicados entre resoluciones
-MERGE_PLX = 0.3
-MERGE_PM = 1.0
-MIN_MEMBERS = 15
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from common import hdfs_uri, load_config, log, repo_root, resolve  # noqa: E402
 
 
 # ----------------------------- UTILIDADES ------------------------------------
@@ -85,7 +62,7 @@ def neighbors(j, i, nra_of):
     return out
 
 
-def merge_cells(cells, nra_of):
+def merge_cells(cells, nra_of, p):
     """cells: lista de (j, i, plx, pmra, pmdec). Devuelve {(j,i): cid} por componentes."""
     idx = {(c[0], c[1]): n for n, c in enumerate(cells)}
     parent = list(range(len(cells)))
@@ -102,8 +79,8 @@ def merge_cells(cells, nra_of):
             if m is None or m == n:
                 continue
             o = cells[m]
-            if (abs(c[2] - o[2]) < MERGE_PLX
-                    and math.hypot(c[3] - o[3], c[4] - o[4]) < MERGE_PM):
+            if (abs(c[2] - o[2]) < p["merge"]["plx"]
+                    and math.hypot(c[3] - o[3], c[4] - o[4]) < p["merge"]["pm"]):
                 parent[find(m)] = find(n)
     roots = {}
     out = {}
@@ -119,24 +96,45 @@ def circ_sep(ra1, dec1, ra2, dec2):
 
 
 # ----------------------------- PIPELINE --------------------------------------
-if __name__ == "__main__":
+def parse_args(argv=None):
+    ap = argparse.ArgumentParser(description="Celdas + pico cinemático (Spark SQL)")
+    ap.add_argument("--config", default=os.path.join(repo_root(), "config.json"),
+                    help="ruta al config.json")
+    return ap.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    cfg = load_config(args.config)
+    p = dict(cfg["clusters"]["celdas"])
+    p["min_plx_snr"] = float(cfg["clusters"]["min_plx_snr"])
+    p["max_gmag"] = float(cfg["clusters"]["max_gmag"])
+
+    path_in = hdfs_uri(cfg, "merged")
+    path_out = hdfs_uri(cfg, "clusters_celdas")
+    path_members = hdfs_uri(cfg, "members_celdas")
+    csv_out = os.path.join(resolve(cfg["local"]["results"]), "clusters_celdas.csv")
+
     t0 = time.time()
     spark = SparkSession.builder.appName("gaia_clusters_celdas").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
+    log("entrada: {}".format(path_in))
+    log("parámetros: " + ", ".join(
+        "{}={}".format(k, v) for k, v in p.items() if not isinstance(v, dict)))
 
-    df = spark.read.parquet(PATH_IN)
+    df = spark.read.parquet(path_in)
     print("\nFilas totales:", df.count())
 
     base = (
         df.dropna(subset=["object_id", "ra", "dec", "parallax", "parallax_error",
                           "pmra", "pmdec", "phot_g_mean_mag"])
-          .filter((df.parallax > 0)
-                  & (df.parallax / df.parallax_error >= MIN_PLX_SNR)
-                  & (df.phot_g_mean_mag <= MAX_GMAG))
+          .filter((F.col("parallax") > 0)
+                  & (F.col("parallax") / F.col("parallax_error") >= p["min_plx_snr"])
+                  & (F.col("phot_g_mean_mag") <= p["max_gmag"]))
           .select("object_id", "ra", "dec", "parallax", "pmra", "pmdec", "phot_g_mean_mag")
-          .withColumn("bp", F.floor(F.col("parallax") / BIN_PLX).cast("int"))
-          .withColumn("br", F.floor(F.col("pmra") / BIN_PM).cast("int"))
-          .withColumn("bd", F.floor(F.col("pmdec") / BIN_PM).cast("int"))
+          .withColumn("bp", F.floor(F.col("parallax") / p["bin_plx"]).cast("int"))
+          .withColumn("br", F.floor(F.col("pmra") / p["bin_pm"]).cast("int"))
+          .withColumn("bd", F.floor(F.col("pmdec") / p["bin_pm"]).cast("int"))
           .persist()
     )
     print("Filas tras filtro de calidad:", base.count())
@@ -144,7 +142,7 @@ if __name__ == "__main__":
     all_rows = []        # (res, cid_local, n_cells, n, ra, dec, plx, pmra, pmdec, sdp, sdr, sdd, rad)
     members_dfs = []
 
-    for d in RESOLUTIONS:
+    for d in p["resolutions_deg"]:
         t1 = time.time()
         print(f"\n--- Resolución {d}° ---")
         stars, nra_of = add_cell(spark, base, d)
@@ -153,11 +151,11 @@ if __name__ == "__main__":
         cells = stars.groupBy("j", "i").agg(F.count("*").alias("n"))
         st = cells.agg(F.count("*").alias("nc"), F.mean("n").alias("mu"),
                        F.stddev("n").alias("sd"),
-                       F.percentile_approx("n", PERCENTILE).alias("pc")).first()
+                       F.percentile_approx("n", p["percentile"]).alias("pc")).first()
         mu, sd, pc = float(st["mu"]), float(st["sd"] or 0.0), float(st["pc"])
-        thr = max(mu + SIGMA_K * sd, pc, float(MIN_CELL_STARS))
+        thr = max(mu + p["sigma_k"] * sd, pc, float(p["min_cell_stars"]))
         print(f"celdas no vacías: {st['nc']} | mu={mu:.1f} sigma={sd:.1f} "
-              f"p{int(PERCENTILE * 100)}={pc:.0f} -> umbral={thr:.1f}")
+              f"p{int(p['percentile'] * 100)}={pc:.0f} -> umbral={thr:.1f}")
         dense = cells.filter(F.col("n") >= thr)
         n_dense = dense.count()
         print("celdas densas:", n_dense)
@@ -172,7 +170,8 @@ if __name__ == "__main__":
         peak = (kb.withColumn("rk", F.row_number().over(w)).filter("rk = 1")
                   .drop("rk").withColumn("frac", F.col("k") / F.col("n")))
         med = float(peak.agg(F.percentile_approx("frac", 0.5)).first()[0])
-        flagged = peak.filter((F.col("k") >= MIN_PEAK) & (F.col("frac") >= KIN_REL * med))
+        flagged = peak.filter((F.col("k") >= p["min_peak"])
+                              & (F.col("frac") >= p["kin_rel"] * med))
         flagged = flagged.select("j", "i", "bp", "br", "bd").persist()
         n_flag = flagged.count()
         print(f"fracción mediana del pico: {med:.3f} | celdas con pico cinemático: {n_flag}")
@@ -187,7 +186,7 @@ if __name__ == "__main__":
         cell_list = [(r[0], r[1], r[2], r[3], r[4]) for r in cs]
 
         # 4. Fusión de celdas contiguas
-        cmap = merge_cells(cell_list, nra_of)
+        cmap = merge_cells(cell_list, nra_of, p)
         ncell_of = {}
         for cid in cmap.values():
             ncell_of[cid] = ncell_of.get(cid, 0) + 1
@@ -205,7 +204,7 @@ if __name__ == "__main__":
             F.stddev("parallax").alias("sdp"), F.stddev("pmra").alias("sdr"),
             F.stddev("pmdec").alias("sdd"))
             .withColumn("ra_c", (F.col("ra_raw") + 360.0) % 360.0)
-            .filter(F.col("n") >= MIN_MEMBERS))
+            .filter(F.col("n") >= p["min_members"]))
         cen = cen.persist()
         rad = (members.join(F.broadcast(cen.select("cid", "ra_c", "dec_c")), "cid")
                       .withColumn("dra", ((F.col("ra") - F.col("ra_c") + 540.0) % 360.0) - 180.0)
@@ -221,7 +220,7 @@ if __name__ == "__main__":
                              float(r["sdp"] or 0), float(r["sdr"] or 0),
                              float(r["sdd"] or 0), float(r["rad"])))
         print(f"clusters en esta resolución: {len(res)} | tiempo: {time.time() - t1:.1f} s")
-        if WRITE_MEMBERS:
+        if p["write_members"]:
             members_dfs.append(members.select(
                 F.lit(d).alias("res"), "cid", "object_id", "ra", "dec",
                 "parallax", "pmra", "pmdec", "phot_g_mean_mag"))
@@ -233,8 +232,8 @@ if __name__ == "__main__":
         dup = False
         for k in kept:
             if (circ_sep(k[4], k[5], r[4], r[5]) < max(k[0], r[0])
-                    and abs(k[6] - r[6]) < MERGE_PLX
-                    and math.hypot(k[7] - r[7], k[8] - r[8]) < MERGE_PM):
+                    and abs(k[6] - r[6]) < p["merge"]["plx"]
+                    and math.hypot(k[7] - r[7], k[8] - r[8]) < p["merge"]["pm"]):
                 dup = True
                 break
         if not dup:
@@ -258,14 +257,14 @@ if __name__ == "__main__":
             print(f"{'cluster ' + str(r[0]):>10} {r[1]:>5} {r[2]:>6} {r[3]:>5} {r[4]:>9.3f} "
                   f"{r[5]:>9.3f} {r[6]:>7.3f} {r[7]:>8.1f} {r[8]:>8.2f} {r[9]:>8.2f} {r[13]:>6.2f}")
         if len(final) > 30:
-            print(f"... ({len(final) - 30} más en {CSV_OUT})")
+            print(f"... ({len(final) - 30} más en {csv_out})")
 
-        os.makedirs(os.path.dirname(CSV_OUT), exist_ok=True)
-        with open(CSV_OUT, "w", newline="") as f:
+        os.makedirs(os.path.dirname(csv_out), exist_ok=True)
+        with open(csv_out, "w", newline="") as f:
             wr = csv.writer(f)
             wr.writerow(cols)
             wr.writerows(final)
-        print("\nCSV local:", CSV_OUT)
+        print("\nCSV local:", csv_out)
 
         schema = ("cluster_id int, resolution_deg double, n_cells int, n_members int, "
                   "ra double, dec double, parallax double, dist_pc double, pmra double, "
@@ -273,10 +272,10 @@ if __name__ == "__main__":
                   "radius_deg double")
         tabla = spark.createDataFrame(final, schema)
         tabla.show(10, truncate=False)
-        tabla.write.mode("overwrite").parquet(PATH_OUT)
-        print("Parquet en HDFS:", PATH_OUT)
+        tabla.write.mode("overwrite").parquet(path_out)
+        print("Parquet en HDFS:", path_out)
 
-        if WRITE_MEMBERS and members_dfs:
+        if p["write_members"] and members_dfs:
             mapping = spark.createDataFrame(
                 [(float(r[0]), r[1], fid) for fid, r in
                  ((n, kept[n - 1]) for n in range(1, len(kept) + 1))],
@@ -287,10 +286,15 @@ if __name__ == "__main__":
             out = (allm.join(F.broadcast(mapping), ["res", "cid"])
                        .select("cluster_id", "object_id", "ra", "dec", "parallax",
                                "pmra", "pmdec", "phot_g_mean_mag"))
-            out.write.mode("overwrite").parquet(PATH_MEMBERS)
-            print("Miembros en HDFS:", PATH_MEMBERS)
+            out.write.mode("overwrite").parquet(path_members)
+            print("Miembros en HDFS:", path_members)
     else:
-        print("No se encontraron clusters: baja KIN_REL / MIN_PEAK o prueba otras resoluciones.")
+        print("No se encontraron clusters: baja kin_rel/min_peak o prueba otras resoluciones.")
 
     print(f"\nTiempo total: {time.time() - t0:.1f} s")
     spark.stop()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

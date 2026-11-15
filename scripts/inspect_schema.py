@@ -1,26 +1,44 @@
 # inspect_schema.py — imprime el esquema del Parquet unificado en HDFS.
+#
+#   python3 scripts/inspect_schema.py [--config config.json]
+import argparse
+import os
+import sys
+
 from pyspark.sql import SparkSession
 
-spark = (
-    SparkSession.builder
-    .appName("gaia_columnas")
-    .getOrCreate()
-)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "src"))
+from common import hdfs_uri, load_config  # noqa: E402
 
-PATH = "hdfs://cm:9000/data/2026/uhadoop/teatime/gaia/gaia_mmu_merged.parquet"
 
-df = spark.read.parquet(PATH)
+def main():
+    ap = argparse.ArgumentParser(description="Esquema del Parquet unificado")
+    ap.add_argument("--config", default=os.path.join(ROOT, "config.json"),
+                    help="ruta al config.json")
+    args = ap.parse_args()
 
-print("\n=== ESQUEMA ===")
-df.printSchema()
+    cfg = load_config(args.config)
+    spark = SparkSession.builder.appName("gaia_inspect_schema").getOrCreate()
+    spark.sparkContext.setLogLevel("ERROR")
 
-print("\n=== COLUMNAS (nombre, tipo) ===")
-for nombre, tipo in df.dtypes:
-    print(f"{nombre:35s} {tipo}")
+    df = spark.read.parquet(hdfs_uri(cfg, "merged"))
 
-print("\nTotal de columnas:", len(df.columns))
+    print("\n=== ESQUEMA ===")
+    df.printSchema()
 
-print("\n=== PRIMERAS 5 FILAS ===")
-df.show(5, truncate=False)
+    print("\n=== COLUMNAS (nombre, tipo) ===")
+    for nombre, tipo in df.dtypes:
+        print(f"{nombre:35s} {tipo}")
 
-spark.stop()
+    print("\nTotal de columnas:", len(df.columns))
+
+    print("\n=== PRIMERAS 5 FILAS ===")
+    df.show(5, truncate=False)
+
+    spark.stop()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

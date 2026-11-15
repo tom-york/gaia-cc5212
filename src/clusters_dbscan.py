@@ -3,39 +3,22 @@
 #   Spark  -> filtro de calidad + reparto por baldosa HEALPix (source_tile)
 #   numpy  -> DBSCAN en 5D dentro de cada baldosa (sin pandas ni sklearn)
 #   driver -> fusión de duplicados en bordes + tabla final
+#
+# Parámetros en config.json (sección "clusters"). Uso:
+#   spark-submit src/clusters_dbscan.py [--config config.json]
+import argparse
 import csv
 import math
 import os
+import sys
 import time
 
 import numpy as np
 from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
-# ----------------------------- PARÁMETROS ------------------------------------
-BASE = "hdfs://cm:9000/data/2026/uhadoop/teatime/gaia"
-PATH_IN = f"{BASE}/gaia_mmu_merged.parquet"
-PATH_OUT = f"{BASE}/gaia_clusters.parquet"
-CSV_OUT = "results/clusters.csv"
-
-# Filtros
-MIN_PLX_SNR = 10.0      # parallax / parallax_error
-MAX_GMAG = 18.0         # descarta estrellas débiles (más ruido, más filas)
-
-# Escalas físicas para normalizar las 5 dimensiones (eps = 1 en espacio escalado)
-SCALE_POS = 0.5         # grados en el cielo
-SCALE_PLX = 0.15        # mas de paralaje
-SCALE_PM = 0.5          # mas/año de movimiento propio
-EPS = 1.0
-MIN_PTS = 8             # vecinos mínimos para ser punto "núcleo"
-MIN_MEMBERS = 15        # miembros mínimos para aceptar un cluster
-
-MAX_STARS_PER_TILE = 30000   # tope de seguridad (se conservan las más brillantes)
-NUM_PARTITIONS = 64
-
-# Fusión de duplicados entre baldosas vecinas
-MERGE_POS_DEG = 0.5
-MERGE_PLX = 0.15
-MERGE_PM = 0.5
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from common import hdfs_uri, load_config, log, repo_root, resolve  # noqa: E402
 
 
 # ----------------------------- DBSCAN (numpy) --------------------------------
@@ -74,12 +57,12 @@ def dbscan(X, eps, min_pts, chunk=500):
     return labels
 
 
-def find_clusters(tile, pts):
+def find_clusters(tile, pts, p):
     """Corre en los ejecutores: recibe todas las estrellas de una baldosa."""
     a = np.array(pts, dtype=np.float64)  # cols: oid, ra, dec, plx, pmra, pmdec, g
-    if len(a) > MAX_STARS_PER_TILE:
-        a = a[np.argsort(a[:, 6])[:MAX_STARS_PER_TILE]]
-    if len(a) < MIN_MEMBERS:
+    if len(a) > p["max_stars_per_tile"]:
+        a = a[np.argsort(a[:, 6])[:p["max_stars_per_tile"]]]
+    if len(a) < p["min_members"]:
         return []
 
     ra, dec = a[:, 1], a[:, 2]
@@ -91,16 +74,16 @@ def find_clusters(tile, pts):
     y = dec - dec0
 
     X = np.column_stack([
-        x / SCALE_POS, y / SCALE_POS,
-        a[:, 3] / SCALE_PLX, a[:, 4] / SCALE_PM, a[:, 5] / SCALE_PM,
+        x / p["scale_pos"], y / p["scale_pos"],
+        a[:, 3] / p["scale_plx"], a[:, 4] / p["scale_pm"], a[:, 5] / p["scale_pm"],
     ])
-    labels = dbscan(X, EPS, MIN_PTS)
+    labels = dbscan(X, p["eps"], p["min_pts"])
 
     out = []
     for c in range(labels.max() + 1):
         m = labels == c
         n = int(m.sum())
-        if n < MIN_MEMBERS:
+        if n < p["min_members"]:
             continue
         rad = float(np.median(np.hypot(x[m] - x[m].mean(), y[m] - y[m].mean())))
         out.append((
@@ -114,7 +97,7 @@ def find_clusters(tile, pts):
 
 
 # ----------------------------- FUSIÓN EN DRIVER ------------------------------
-def merge_clusters(cl):
+def merge_clusters(cl, p):
     n = len(cl)
     if n == 0:
         return []
@@ -134,9 +117,9 @@ def merge_clusters(cl):
         j = np.arange(i + 1, n)
         dra = ((ra[j] - ra[i] + 180.0) % 360.0) - 180.0
         sep = np.hypot(dra * math.cos(math.radians(dec[i])), dec[j] - dec[i])
-        ok = ((sep < MERGE_POS_DEG)
-              & (np.abs(plx[j] - plx[i]) < MERGE_PLX)
-              & (np.hypot(pmra[j] - pmra[i], pmdec[j] - pmdec[i]) < MERGE_PM))
+        ok = ((sep < p["merge"]["pos_deg"])
+              & (np.abs(plx[j] - plx[i]) < p["merge"]["plx"])
+              & (np.hypot(pmra[j] - pmra[i], pmdec[j] - pmdec[i]) < p["merge"]["pm"]))
         for k in j[ok]:
             parent[find(int(k))] = find(i)
 
@@ -162,32 +145,52 @@ def merge_clusters(cl):
 
 
 # ----------------------------- PIPELINE --------------------------------------
-if __name__ == "__main__":
-    t0 = time.time()
-    spark = SparkSession.builder.appName("gaia_clusters").getOrCreate()
-    spark.sparkContext.setLogLevel("ERROR")
+def parse_args(argv=None):
+    ap = argparse.ArgumentParser(description="DBSCAN 5D por baldosa HEALPix")
+    ap.add_argument("--config", default=os.path.join(repo_root(), "config.json"),
+                    help="ruta al config.json")
+    return ap.parse_args(argv)
 
-    df = spark.read.parquet(PATH_IN)
+
+def main(argv=None):
+    args = parse_args(argv)
+    cfg = load_config(args.config)
+    p = dict(cfg["clusters"]["dbscan"])
+    p["min_plx_snr"] = float(cfg["clusters"]["min_plx_snr"])
+    p["max_gmag"] = float(cfg["clusters"]["max_gmag"])
+
+    path_in = hdfs_uri(cfg, "merged")
+    path_out = hdfs_uri(cfg, "clusters_dbscan")
+    csv_out = os.path.join(resolve(cfg["local"]["results"]), "clusters_dbscan.csv")
+
+    t0 = time.time()
+    spark = SparkSession.builder.appName("gaia_clusters_dbscan").getOrCreate()
+    spark.sparkContext.setLogLevel("ERROR")
+    log("entrada: {}".format(path_in))
+    log("parámetros: " + ", ".join(
+        "{}={}".format(k, v) for k, v in p.items() if not isinstance(v, dict)))
+
+    df = spark.read.parquet(path_in)
     print("\nFilas totales:", df.count())
 
     base = (
         df.dropna(subset=["object_id", "ra", "dec", "parallax", "parallax_error",
                           "pmra", "pmdec", "phot_g_mean_mag", "source_tile"])
-          .filter((df.parallax > 0)
-                  & (df.parallax / df.parallax_error >= MIN_PLX_SNR)
-                  & (df.phot_g_mean_mag <= MAX_GMAG))
+          .filter((F.col("parallax") > 0)
+                  & (F.col("parallax") / F.col("parallax_error") >= p["min_plx_snr"])
+                  & (F.col("phot_g_mean_mag") <= p["max_gmag"]))
           .select("source_tile", "object_id", "ra", "dec", "parallax",
                   "pmra", "pmdec", "phot_g_mean_mag")
     )
     print("Filas tras filtro de calidad:", base.count())
 
     rows = base.rdd.map(lambda r: (int(r[0]), tuple(float(v) for v in r[1:])))
-    found = (rows.groupByKey(NUM_PARTITIONS)
-                 .flatMap(lambda kv: find_clusters(kv[0], list(kv[1])))
+    found = (rows.groupByKey(p["num_partitions"])
+                 .flatMap(lambda kv: find_clusters(kv[0], list(kv[1]), p))
                  .collect())
     print("Candidatos por baldosa (antes de fusionar):", len(found))
 
-    final = merge_clusters(found)
+    final = merge_clusters(found, p)
     print("Clusters finales:", len(final))
 
     cols = ["cluster_id", "n_members", "ra", "dec", "parallax", "dist_pc",
@@ -201,24 +204,29 @@ if __name__ == "__main__":
             print(f"{'cluster ' + str(r[0]):>8} {r[1]:>5} {r[2]:>9.3f} {r[3]:>9.3f} "
                   f"{r[4]:>7.3f} {r[5]:>8.1f} {r[6]:>8.2f} {r[7]:>8.2f} {r[11]:>6.2f}")
         if len(final) > 30:
-            print(f"... ({len(final) - 30} más en {CSV_OUT})")
+            print(f"... ({len(final) - 30} más en {csv_out})")
 
-        os.makedirs(os.path.dirname(CSV_OUT), exist_ok=True)
-        with open(CSV_OUT, "w", newline="") as f:
+        os.makedirs(os.path.dirname(csv_out), exist_ok=True)
+        with open(csv_out, "w", newline="") as f:
             w = csv.writer(f)
             w.writerow(cols)
             w.writerows(final)
-        print("\nCSV local:", CSV_OUT)
+        print("\nCSV local:", csv_out)
 
         schema = ("cluster_id int, n_members int, ra double, dec double, parallax double, "
                   "dist_pc double, pmra double, pmdec double, sd_parallax double, "
                   "sd_pmra double, sd_pmdec double, radius_deg double")
         tabla = spark.createDataFrame(final, schema)
         tabla.show(10, truncate=False)
-        tabla.write.mode("overwrite").parquet(PATH_OUT)
-        print("Parquet en HDFS:", PATH_OUT)
+        tabla.write.mode("overwrite").parquet(path_out)
+        print("Parquet en HDFS:", path_out)
     else:
-        print("No se encontraron clusters: prueba bajar MIN_PTS/MIN_MEMBERS o subir EPS.")
+        print("No se encontraron clusters: prueba bajar min_pts/min_members o subir eps.")
 
     print(f"\nTiempo total: {time.time() - t0:.1f} s")
     spark.stop()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -166,7 +166,7 @@ rsync -av -e 'ssh -p 220' \
 - [x] Detección de candidatos (2026-11-15): dos métodos independientes sobre el mismo
       Parquet — DBSCAN 5D por baldosa (`src/clusters_dbscan.py`) y celdas de área
       ~constante con pico cinemático (`src/clusters_celdas.py`). Tablas en
-      `results/clusters.csv` y `results/clusters_celdas.csv`.
+      `results/clusters_dbscan.csv` y `results/clusters_celdas.csv`.
 - [ ] Experimentos: barrido de `eps`/`min_pts` y de resolución/umbral, con tiempos.
 - [ ] Figuras: densidad con `LogNorm`, `pmra` vs `pmdec`, color–magnitud.
 - [ ] Validación: M7, SIMBAD, Hunt & Reffert (2023).
