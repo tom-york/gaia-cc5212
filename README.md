@@ -40,7 +40,9 @@ con el número medido, su origen y su implicancia para el informe. Titulares:
 - El máximo real por celda de 0,25° es 847 estrellas, no las 5.738 del análisis previo (H-05).
 - La partición cubre 8,6 % del cielo, no todo el cielo (H-06).
 - Dos detectores independientes dan 16 y 3 candidatos; sus dispersiones internas
-  (2,3–15,1 km/s) indican asociaciones, no cúmulos ligados (H-13, H-14).
+  (2,3–15,2 km/s) indican asociaciones, no cúmulos ligados (H-13, H-14).
+- Con `eps = 0,8` los mismos datos dan 4 núcleos fríos (1,3–3,8 km/s) inmersos en esas
+  asociaciones: hay estructura ligada, pero es minoritaria (H-19).
 
 ## Entorno del clúster
 
@@ -74,6 +76,8 @@ scripts/make_pylibs.sh    genera pylibs.zip con numpy (no versionado)
 scripts/inspect_schema.py imprime el esquema del Parquet unificado
 scripts/run_experiments.sh barrido de configuraciones con tiempos
 scripts/compare_clusters.py compara dos tablas por conjunto (no por orden)
+tests/test_determinism.py regresión: la salida no depende del orden de entrada
+tests/pyspark_stub/       stub mínimo de pyspark para correr el test sin Spark
 docs/hallazgos.md         bitácora de hallazgos con evidencia y pendientes
 results/staging/          resúmenes y evidencia del staging
 results/clusters/         tablas de candidatos, una por método
@@ -169,9 +173,10 @@ Cada corrida agrega un registro a `results/experiments/timings.json`:
 | `spark_s` | el `Tiempo total` que imprime el script (incluye crear la sesión, no el lanzador) |
 | `tag`, `method`, `overrides`, `rc` | trazabilidad: qué config se usó y cómo terminó |
 
-`wall_s − spark_s` es solo el lanzador (bash + JVM de `spark-submit` + cierre):
-**7,8–9,4 s** en las 6 corridas. No es el arranque de la aplicación, porque el cronómetro
-del script arranca antes de crear la sesión y `spark_s` ya lo incluye.
+`wall_s − spark_s` es solo el lanzador (bash + JVM de `spark-submit` + cierre): **8–17 s**.
+No es el arranque de la aplicación, porque el cronómetro del script arranca antes de crear
+la sesión y `spark_s` ya lo incluye. El arranque en sí (asignación de ejecutores en YARN) es
+la parte más variable: 48–56 s en la sesión del 22-nov, cuando el clúster estaba cargado.
 
 Cada variante escribe en su propia carpeta, así que nada se pisa:
 
@@ -235,12 +240,13 @@ etapa que imprimen los scripts son de los jobs de Spark, no de las líneas de Py
       Parquet — DBSCAN 5D por baldosa (`src/clusters_dbscan.py`) y celdas de área
       ~constante con pico cinemático (`src/clusters_celdas.py`). Tablas en
       `results/clusters/clusters_dbscan.csv` y `results/clusters/clusters_celdas.csv`.
-- [x] Experimentos (2026-11-15): 6 variantes con `rc = 0`, tiempos en
-      `results/experiments/timings.json` (132–177 s de Spark, 7,8–9,4 s de lanzador).
-      Sensibilidad de `eps` y del SNR en H-19 y H-20.
-- [ ] Re-correr el barrido con `--out`/`--tag` y refrescar las tablas canónicas: la
-      corrida del 15-nov escribía todas las variantes en el mismo CSV por método, así que
-      la última tapó a las anteriores.
+- [x] Experimentos (2026-11-22): 6 variantes con `rc = 0`, cada una en su carpeta, tiempos
+      en `results/experiments/timings.json`. Sensibilidad de `eps` (4 / 16 / 24 candidatos),
+      de `kin_rel` (3 → 4) y del SNR (3 → 6) en H-19, H-16 y H-20.
+- [x] Reproducibilidad (2026-11-22): orden de entrada fijo en DBSCAN; las dos corridas
+      canónicas son idénticas byte a byte y `tests/test_determinism.py` lo verifica sin
+      Spark (H-22).
+- [x] Banda de paralaje calculada sobre los miembros del grupo, no sobre el campo (H-23).
 - [ ] Figuras: densidad con `LogNorm`, `pmra` vs `pmdec`, color–magnitud.
 - [ ] Validación: M7, SIMBAD, Hunt & Reffert (2023).
 
@@ -254,9 +260,9 @@ etapa que imprimen los scripts son de los jobs de Spark, no de las líneas de Py
   simétrico, y la fusión de celdas contiguas lo hereda.
 - El umbral de densidad es un cuantil fijo (percentil 99 ≈ 1 % de las celdas no vacías),
   no un contraste adaptativo: el número de candidatos depende de la resolución (H-21).
-- `eps = 1,0` no detecta el grupo ligado de 237 pc y `eps = 1,2` funde cuatro
-  poblaciones en un solo grupo de 569 miembros (H-19). El valor elegido es un
-  compromiso declarado, no un óptimo.
+- `eps = 1,0` no detecta el grupo ligado de 237 pc ni los 4 núcleos fríos que aparecen con
+  `eps = 0,8`, y `eps = 1,2` funde cuatro poblaciones en un solo grupo de 569 miembros
+  (H-19). El valor elegido es un compromiso declarado, no un óptimo.
 - El filtro `SNR ≥ 10` descarta el 32 % de las filas; con `SNR ≥ 5` los dos métodos
   dejan de coincidir en paralaje (H-20).
 - El criterio cinemático absoluto (dispersión de movimiento propio < 3 mas/año) depende
