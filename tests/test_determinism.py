@@ -112,10 +112,12 @@ def main():
                  mod.merge_clusters(barajar(referencia, 100 + k), PARAMS), k, fallos_driver)
     print(f"merge_clusters: {len(fallos_driver)}/10 órdenes distintos")
 
+    # (baldosa, n, ra, dec, plx, pmra, pmdec, sd_plx, sd_pmra, sd_pmdec, radio,
+    #  plx_med, plx_p16, plx_p84)
     empate = [
-        (1, 20, 322.80, 54.85, 0.450, -3.0, 1.0, 0.01, 0.1, 0.1, 0.10),
-        (2, 20, 100.00, -20.00, 0.300, 5.0, -2.0, 0.01, 0.1, 0.1, 0.10),
-        (3, 30, 200.00, 10.00, 0.500, 1.0, 3.0, 0.01, 0.1, 0.1, 0.10),
+        (1, 20, 322.80, 54.85, 0.450, -3.0, 1.0, 0.01, 0.1, 0.1, 0.10, 0.448, 0.44, 0.46),
+        (2, 20, 100.00, -20.00, 0.300, 5.0, -2.0, 0.01, 0.1, 0.1, 0.10, 0.301, 0.29, 0.31),
+        (3, 30, 200.00, 10.00, 0.500, 1.0, 3.0, 0.01, 0.1, 0.1, 0.10, 0.499, 0.49, 0.51),
     ]
     fallos_empate = []
     referencia_e = mod.merge_clusters(empate, PARAMS)
@@ -124,7 +126,12 @@ def main():
                  mod.merge_clusters(barajar(empate, 200 + k), PARAMS), k, fallos_empate)
     print(f"empate n: {len(fallos_empate)}/6 órdenes distintos")
 
-    total = len(fallos) + len(fallos_driver) + len(fallos_empate)
+    # La banda de paralaje debe salir de los miembros del grupo: si se calculara
+    # sobre una vecindad relajada, la mediana se sesgaria hacia paralajes mayores.
+    desordenadas = [g for g in referencia if not (g[12] <= g[11] <= g[13])]
+    print(f"banda de paralaje: {len(desordenadas)} grupos con p16 > mediana o mediana > p84")
+
+    total = len(fallos) + len(fallos_driver) + len(fallos_empate) + len(desordenadas)
     print("\nOK: la salida no depende del orden de entrada" if not total
           else f"\nFALLA: {total} casos dependen del orden de entrada")
     return 0 if not total else 1

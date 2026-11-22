@@ -91,12 +91,16 @@ def find_clusters(tile, pts, p):
         if n < p["min_members"]:
             continue
         rad = float(np.median(np.hypot(x[m] - x[m].mean(), y[m] - y[m].mean())))
+        # La banda de paralaje sale de las estrellas del grupo. Calcularla sobre una
+        # vecindad relajada alrededor del centro mezcla campo y sesga la mediana hacia
+        # paralajes mayores, o sea hacia distancias menores (H-25).
+        q16, q50, q84 = np.percentile(a[m, 3], [16, 50, 84])
         out.append((
             int(tile), n,
             float((ra0 + dra[m].mean()) % 360.0), float(dec[m].mean()),
             float(a[m, 3].mean()), float(a[m, 4].mean()), float(a[m, 5].mean()),
             float(a[m, 3].std()), float(a[m, 4].std()), float(a[m, 5].std()),
-            rad,
+            rad, float(q50), float(q16), float(q84),
         ))
     return out
 
@@ -145,50 +149,16 @@ def merge_clusters(cl, p):
         merged.append((
             int(W), ra_m, wm(3), wm(4), wm(5), wm(6),
             wm(7), wm(8), wm(9), max(c[10] for c in g),
+            # Cuantiles: si hubo fusión se ponderan por miembros. Es una aproximación,
+            # pero en las seis corridas de la matriz candidates_pre_merge == final, así
+            # que ningún grupo de los reportados pasó por aquí.
+            wm(11), wm(12), wm(13),
         ))
     merged.sort(key=lambda r: -r[0])
-    # cluster_id, n, ra, dec, plx, dist_pc, pmra, pmdec, sd_plx, sd_pmra, sd_pmdec, radio
+    # cluster_id, n, ra, dec, plx, dist_pc, pmra, pmdec, sd_plx, sd_pmra, sd_pmdec,
+    # radio, plx_med, plx_p16, plx_p84
     return [(i + 1, r[0], r[1], r[2], r[3], 1000.0 / r[3], r[4], r[5],
-             r[6], r[7], r[8], r[9]) for i, r in enumerate(merged)]
-
-
-def add_parallax_band(tabla, base):
-    """Recalcula la paralaje como mediana con banda p16/p84 sobre las estrellas del grupo.
-
-    El promedio de paralaje no es el promedio de las distancias (H-17), así que se
-    reporta la mediana y su banda. La selección es la misma que definió al grupo:
-    dentro de 2 radios, 3 sigma de paralaje y 3 sigma de movimiento propio.
-    """
-    c = (tabla.select(
-        "cluster_id",
-        F.col("ra").alias("c_ra"), F.col("dec").alias("c_dec"),
-        F.col("parallax").alias("c_plx"),
-        F.greatest(F.col("sd_parallax"), F.lit(0.01)).alias("c_sdp"),
-        F.col("pmra").alias("c_pmra"), F.col("pmdec").alias("c_pmdec"),
-        F.greatest(F.hypot(F.col("sd_pmra"), F.col("sd_pmdec")),
-                   F.lit(0.01)).alias("c_sdpm"),
-        F.greatest(F.col("radius_deg"), F.lit(0.05)).alias("c_rad")))
-
-    dra = ((F.col("ra") - F.col("c_ra") + 540.0) % 360.0) - 180.0
-    sep = F.sqrt(F.pow(dra * F.cos(F.radians(F.col("c_dec"))), 2)
-                 + F.pow(F.col("dec") - F.col("c_dec"), 2))
-    dpm = F.hypot(F.col("pmra") - F.col("c_pmra"), F.col("pmdec") - F.col("c_pmdec"))
-
-    sel = (base.join(F.broadcast(c), how="inner")
-               .filter((sep <= 2.0 * F.col("c_rad"))
-                       & (F.abs(F.col("parallax") - F.col("c_plx")) <= 3.0 * F.col("c_sdp"))
-                       & (dpm <= 3.0 * F.col("c_sdpm"))))
-
-    q = (sel.groupBy("cluster_id").agg(
-        F.count("*").alias("n_ref"),
-        F.percentile_approx("parallax", 0.5).alias("plx_med"),
-        F.percentile_approx("parallax", 0.16).alias("plx_p16"),
-        F.percentile_approx("parallax", 0.84).alias("plx_p84")))
-    # La banda se invierte al pasar a distancia: plx_p84 es la distancia menor.
-    q = (q.withColumn("dist_med_pc", 1000.0 / F.col("plx_med"))
-          .withColumn("dist_p16_pc", 1000.0 / F.col("plx_p84"))
-          .withColumn("dist_p84_pc", 1000.0 / F.col("plx_p16")))
-    return tabla.join(q, "cluster_id", "left")
+             r[6], r[7], r[8], r[9], r[10], r[11], r[12]) for i, r in enumerate(merged)]
 
 
 # ----------------------------- PIPELINE --------------------------------------
@@ -253,7 +223,7 @@ def main(argv=None):
     cols = ["cluster_id", "n_members", "ra", "dec", "parallax", "dist_pc",
             "pmra", "pmdec", "sd_parallax", "sd_pmra", "sd_pmdec", "radius_deg",
             "plx_med", "plx_p16", "plx_p84",
-            "dist_med_pc", "dist_p16_pc", "dist_p84_pc", "n_ref"]
+            "dist_med_pc", "dist_p16_pc", "dist_p84_pc"]
 
     if final:
         print("\n=== CLUSTERS ENCONTRADOS ===")
@@ -267,8 +237,14 @@ def main(argv=None):
 
         schema = ("cluster_id int, n_members int, ra double, dec double, parallax double, "
                   "dist_pc double, pmra double, pmdec double, sd_parallax double, "
-                  "sd_pmra double, sd_pmdec double, radius_deg double")
-        tabla = add_parallax_band(spark.createDataFrame(final, schema), base).persist()
+                  "sd_pmra double, sd_pmdec double, radius_deg double, "
+                  "plx_med double, plx_p16 double, plx_p84 double")
+        # La banda se invierte al pasar a distancia: p84 de paralaje es la distancia menor.
+        tabla = (spark.createDataFrame(final, schema)
+                      .withColumn("dist_med_pc", 1000.0 / F.col("plx_med"))
+                      .withColumn("dist_p16_pc", 1000.0 / F.col("plx_p84"))
+                      .withColumn("dist_p84_pc", 1000.0 / F.col("plx_p16"))
+                      .persist())
         tabla.show(10, truncate=False)
 
         os.makedirs(out_dir, exist_ok=True)
