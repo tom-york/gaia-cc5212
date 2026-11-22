@@ -1,0 +1,39 @@
+{
+  "figuras": [
+    {
+      "archivo": "fig_01_embudo.png",
+      "titulo": "embudo: total, filtro de calidad y candidatos por método",
+      "fuente": "run_summary_dbscan.json, run_summary_celdas.json"
+    },
+    {
+      "archivo": "fig_02_cielo.png",
+      "titulo": "posición de los 16 + 3 candidatos, con zoom a las tres regiones",
+      "fuente": "results/clusters/clusters_dbscan.csv, clusters_celdas.csv"
+    },
+    {
+      "archivo": "fig_03_eps.png",
+      "titulo": "n vs dispersión interna para eps = 0,8 / 1,0 / 1,2",
+      "fuente": "results/experiments/{eps_0.8,dbscan_base,eps_1.2}/clusters_dbscan.csv"
+    },
+    {
+      "archivo": "fig_04_distancias.png",
+      "titulo": "distancia con banda p16–p84 frente a dispersión interna",
+      "fuente": "results/clusters/clusters_dbscan.csv"
+    },
+    {
+      "archivo": "fig_05_movimiento.png",
+      "titulo": "plano de movimiento propio de los grupos",
+      "fuente": "results/clusters/clusters_dbscan.csv, clusters_celdas.csv"
+    },
+    {
+      "archivo": "fig_06_celdas.png",
+      "titulo": "histograma de conteos por celda y umbral p99 por resolución",
+      "fuente": "results/experiments/celdas_base/cells_<res>_hist.json"
+    },
+    {
+      "archivo": "fig_07_tiempos.png",
+      "titulo": "tiempo de pared y de Spark por variante",
+      "fuente": "results/experiments/timings.json"
+    }
+  ]
+}

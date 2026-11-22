@@ -68,7 +68,7 @@ src/download.py           descarga Norder=4/Dir=0 a raw/ (solo requests)
 src/stage.py              unificación a Parquet de 12 columnas en HDFS (YARN)
 src/clusters_dbscan.py    DBSCAN 5D por baldosa (numpy en los ejecutores)
 src/clusters_celdas.py    celdas de área ~constante + pico cinemático (Spark SQL)
-src/figures.py            (pendiente) mapas y diagramas
+src/figures.py            figuras del informe desde las tablas (sin Spark)
 scripts/yarn_env.sh       flags de spark-submit validados en el clúster
 scripts/stage_data.sh     preflight + descarga + unificación + HDFS
 scripts/run_clusters.sh   corre cualquiera de los dos detectores (--method)
@@ -194,6 +194,27 @@ La corrida sin `--tag` escribe en `results/clusters/`, que es la tabla que cita 
 dentro del primer job que la necesita, no donde el código la declara (H-09). Los tiempos por
 etapa que imprimen los scripts son de los jobs de Spark, no de las líneas de Python.
 
+## Figuras
+
+`src/figures.py` arma las figuras solo con las tablas versionadas: no necesita Spark, ni el
+Parquet, ni los crudos. Cada figura queda con su fuente declarada en
+`results/figures/figures.json`.
+
+```bash
+python3 src/figures.py                     # las 7
+python3 src/figures.py --only eps,cielo    # un subconjunto
+```
+
+| Archivo | Qué muestra |
+|---|---|
+| `fig_01_embudo.png` | del total de la partición a los candidatos, con el corte de calidad |
+| `fig_02_cielo.png` | posición de los 16 + 3 candidatos, con zoom a las tres regiones |
+| `fig_03_eps.png` | miembros vs dispersión para `eps` = 0,8 / 1,0 / 1,2 (H-19) |
+| `fig_04_distancias.png` | distancia con banda p16–p84 frente a dispersión interna |
+| `fig_05_movimiento.png` | plano de movimiento propio de los grupos |
+| `fig_06_celdas.png` | histograma de conteos por celda y umbral p99 (H-21) |
+| `fig_07_tiempos.png` | costo por variante |
+
 ## Decisiones de diseño
 
 - **NaN no es null.** Los faltantes astrométricos vienen como `NaN` y Spark los deja
@@ -247,7 +268,8 @@ etapa que imprimen los scripts son de los jobs de Spark, no de las líneas de Py
       canónicas son idénticas byte a byte y `tests/test_determinism.py` lo verifica sin
       Spark (H-22).
 - [x] Banda de paralaje calculada sobre los miembros del grupo, no sobre el campo (H-23).
-- [ ] Figuras: densidad con `LogNorm`, `pmra` vs `pmdec`, color–magnitud.
+- [x] Figuras (2026-11-22): 7 paneles desde las tablas versionadas, en
+      `results/figures/` con su manifiesto.
 - [ ] Validación: M7, SIMBAD, Hunt & Reffert (2023).
 
 ## Limitaciones (van al informe)
