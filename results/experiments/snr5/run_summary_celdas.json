@@ -1,0 +1,83 @@
+{
+  "method": "celdas",
+  "tag": "snr5",
+  "config": "/data/2026/uhadoop/teatime/gaia/gaia-cc5212/results/experiments/configs/snr5.json",
+  "rows_total": 1336195,
+  "rows_after_filter": 1127902,
+  "resolutions": [
+    {
+      "resolution_deg": 0.25,
+      "n_cells": 46267,
+      "mean": 24.38,
+      "sigma": 22.33,
+      "percentile": 0.99,
+      "p_value": 93.0,
+      "threshold": 93.0,
+      "threshold_source": "p99",
+      "max_cell": 548,
+      "n_dense": 479,
+      "n_flagged": 4,
+      "n_clusters": 1,
+      "median_frac": 0.02,
+      "seconds": 50.7
+    },
+    {
+      "resolution_deg": 0.5,
+      "n_cells": 13056,
+      "mean": 86.39,
+      "sigma": 74.0,
+      "percentile": 0.99,
+      "p_value": 334.0,
+      "threshold": 334.0,
+      "threshold_source": "p99",
+      "max_cell": 1633,
+      "n_dense": 132,
+      "n_flagged": 15,
+      "n_clusters": 5,
+      "median_frac": 0.010973936899862825,
+      "seconds": 28.1
+    },
+    {
+      "resolution_deg": 1.0,
+      "n_cells": 3856,
+      "mean": 292.51,
+      "sigma": 230.47,
+      "percentile": 0.99,
+      "p_value": 1125.0,
+      "threshold": 1125.0,
+      "threshold_source": "p99",
+      "max_cell": 2707,
+      "n_dense": 39,
+      "n_flagged": 5,
+      "n_clusters": 5,
+      "median_frac": 0.007886435331230283,
+      "seconds": 23.9
+    }
+  ],
+  "candidates_pre_dedup": 11,
+  "clusters_final": 6,
+  "params": {
+    "resolutions_deg": [
+      0.25,
+      0.5,
+      1.0
+    ],
+    "min_cell_stars": 15,
+    "sigma_k": 3.0,
+    "percentile": 0.99,
+    "bin_plx": 0.3,
+    "bin_pm": 1.0,
+    "min_peak": 10,
+    "kin_rel": 2.0,
+    "min_members": 15,
+    "write_members": true,
+    "min_plx_snr": 5.0,
+    "max_gmag": 18.0
+  },
+  "seconds": 188.3,
+  "outputs": {
+    "csv": "/data/2026/uhadoop/teatime/gaia/gaia-cc5212/results/experiments/snr5/clusters_celdas.csv",
+    "parquet": "hdfs://cm:9000/data/2026/uhadoop/teatime/gaia/gaia_clusters_celdas_snr5.parquet",
+    "members": "hdfs://cm:9000/data/2026/uhadoop/teatime/gaia/gaia_cluster_members_celdas_snr5.parquet"
+  }
+}

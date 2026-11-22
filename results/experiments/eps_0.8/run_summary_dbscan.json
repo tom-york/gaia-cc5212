@@ -1,0 +1,26 @@
+{
+  "method": "dbscan",
+  "tag": "eps_0.8",
+  "config": "/data/2026/uhadoop/teatime/gaia/gaia-cc5212/results/experiments/configs/eps_0.8.json",
+  "rows_total": 1336195,
+  "rows_after_filter": 909448,
+  "candidates_pre_merge": 4,
+  "clusters_final": 4,
+  "params": {
+    "scale_pos": 0.5,
+    "scale_plx": 0.15,
+    "scale_pm": 0.5,
+    "eps": 0.8,
+    "min_pts": 8,
+    "min_members": 15,
+    "max_stars_per_tile": 30000,
+    "num_partitions": 64,
+    "min_plx_snr": 10.0,
+    "max_gmag": 18.0
+  },
+  "seconds": 173.0,
+  "outputs": {
+    "csv": "/data/2026/uhadoop/teatime/gaia/gaia-cc5212/results/experiments/eps_0.8/clusters_dbscan.csv",
+    "parquet": "hdfs://cm:9000/data/2026/uhadoop/teatime/gaia/gaia_clusters_eps_0.8.parquet"
+  }
+}

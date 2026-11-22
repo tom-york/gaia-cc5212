@@ -1,0 +1,83 @@
+{
+  "method": "celdas",
+  "tag": "celdas_base",
+  "config": "/data/2026/uhadoop/teatime/gaia/gaia-cc5212/results/experiments/configs/celdas_base.json",
+  "rows_total": 1336195,
+  "rows_after_filter": 909448,
+  "resolutions": [
+    {
+      "resolution_deg": 0.25,
+      "n_cells": 45939,
+      "mean": 19.8,
+      "sigma": 16.11,
+      "percentile": 0.99,
+      "p_value": 71.0,
+      "threshold": 71.0,
+      "threshold_source": "p99",
+      "max_cell": 359,
+      "n_dense": 474,
+      "n_flagged": 0,
+      "n_clusters": 0,
+      "median_frac": 0.022727272727272728,
+      "seconds": 38.0
+    },
+    {
+      "resolution_deg": 0.5,
+      "n_cells": 13021,
+      "mean": 69.84,
+      "sigma": 54.16,
+      "percentile": 0.99,
+      "p_value": 250.0,
+      "threshold": 250.0,
+      "threshold_source": "p99",
+      "max_cell": 995,
+      "n_dense": 133,
+      "n_flagged": 3,
+      "n_clusters": 1,
+      "median_frac": 0.010273972602739725,
+      "seconds": 31.5
+    },
+    {
+      "resolution_deg": 1.0,
+      "n_cells": 3849,
+      "mean": 236.28,
+      "sigma": 175.3,
+      "percentile": 0.99,
+      "p_value": 825.0,
+      "threshold": 825.0,
+      "threshold_source": "p99",
+      "max_cell": 1736,
+      "n_dense": 39,
+      "n_flagged": 5,
+      "n_clusters": 3,
+      "median_frac": 0.005714285714285714,
+      "seconds": 24.6
+    }
+  ],
+  "candidates_pre_dedup": 4,
+  "clusters_final": 3,
+  "params": {
+    "resolutions_deg": [
+      0.25,
+      0.5,
+      1.0
+    ],
+    "min_cell_stars": 15,
+    "sigma_k": 3.0,
+    "percentile": 0.99,
+    "bin_plx": 0.3,
+    "bin_pm": 1.0,
+    "min_peak": 10,
+    "kin_rel": 2.0,
+    "min_members": 15,
+    "write_members": true,
+    "min_plx_snr": 10.0,
+    "max_gmag": 18.0
+  },
+  "seconds": 183.5,
+  "outputs": {
+    "csv": "/data/2026/uhadoop/teatime/gaia/gaia-cc5212/results/experiments/celdas_base/clusters_celdas.csv",
+    "parquet": "hdfs://cm:9000/data/2026/uhadoop/teatime/gaia/gaia_clusters_celdas_celdas_base.parquet",
+    "members": "hdfs://cm:9000/data/2026/uhadoop/teatime/gaia/gaia_cluster_members_celdas_celdas_base.parquet"
+  }
+}
