@@ -34,6 +34,11 @@
       "archivo": "fig_07_tiempos.png",
       "titulo": "tiempo de pared y de Spark por variante",
       "fuente": "results/experiments/timings.json"
-    }
+    },
+    {
+    "archivo": "fig_08_via_lactea.png",
+    "titulo": "candidatos a cúmulos estelares y cobertura Gaia sobre la panorámica de la Vía Láctea",
+    "fuente": "clusters_dbscan.csv, clusters_celdas.csv, results/staging/files.tsv, assets/eso0932a.jpg"
+  }
   ]
 }
