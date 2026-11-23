@@ -196,24 +196,53 @@ etapa que imprimen los scripts son de los jobs de Spark, no de las líneas de Py
 
 ## Figuras
 
-`src/figures.py` arma las figuras solo con las tablas versionadas: no necesita Spark, ni el
-Parquet, ni los crudos. Cada figura queda con su fuente declarada en
-`results/figures/figures.json`.
+El módulo `src/figures.py` genera las ocho figuras principales del proyecto a partir de los resultados tabulares disponibles en el repositorio. No requiere ejecutar Spark ni volver a procesar los datos Parquet originales.
+
+Cada figura registra su descripción y fuentes de datos en `results/figures/figures.json`. La figura de contexto galáctico utiliza adicionalmente la panorámica de ESO (`assets/eso0932a.jpg`) y los archivos de cobertura Gaia (`results/staging/files.tsv`).
+
+Para generar todas las figuras:
 
 ```bash
-python3 src/figures.py                     # las 7
-python3 src/figures.py --only eps,cielo    # un subconjunto
+python3 src/figures.py
 ```
 
-| Archivo | Qué muestra |
+También es posible generar figuras específicas:
+
+```bash
+python3 src/figures.py --only eps,cielo
+```
+
+Las figuras generadas son:
+
+| Archivo | Descripción |
 |---|---|
-| `fig_01_embudo.png` | del total de la partición a los candidatos, con el corte de calidad |
-| `fig_02_cielo.png` | posición de los 16 + 3 candidatos, con zoom a las tres regiones |
-| `fig_03_eps.png` | miembros vs dispersión para `eps` = 0,8 / 1,0 / 1,2 (H-19) |
-| `fig_04_distancias.png` | distancia con banda p16–p84 frente a dispersión interna |
-| `fig_05_movimiento.png` | plano de movimiento propio de los grupos |
-| `fig_06_celdas.png` | histograma de conteos por celda y umbral p99 (H-21) |
-| `fig_07_tiempos.png` | costo por variante |
+| `fig_01_embudo.png` | Resumen del proceso de selección de datos. |
+| `fig_02_cielo.png` | Distribución espacial de los candidatos. |
+| `fig_03_astrometria.png` | Distribución de parámetros astrométricos. |
+| `fig_04_hr.png` | Diagrama color-magnitud de los candidatos. |
+| `fig_05_multiplicidad.png` | Análisis de multiplicidad de candidatos. |
+| `fig_06_experimentos.png` | Comparación de los experimentos realizados. |
+| `fig_07_tiempos.png` | Comparación de tiempos de ejecución. |
+| `fig_08_via_lactea.png` | Candidatos y cobertura Gaia sobre una panorámica de la Vía Láctea. |
+
+### Análisis complementario: catálogo de Hunt & Reffert (2023)
+
+Se incluyen scripts independientes para comparar los candidatos detectados con el catálogo de cúmulos estelares de Hunt & Reffert (2023).
+
+```bash
+python3 scripts/crossmatch_catalogo.py
+python3 scripts/fig_comparacion_catalogo.py
+python3 scripts/fig_comparacion_posiciones.py
+```
+
+Estos scripts generan tablas de comparación y las siguientes visualizaciones:
+
+| Archivo | Descripción |
+|---|---|
+| `fig_09_comparacion_catalogo.png` | Comparación de los candidatos con sus vecinos más cercanos del catálogo. |
+| `fig_10_comparacion_posiciones.png` | Distribución galáctica de los candidatos y los cúmulos catalogados cercanos. |
+
+Estas visualizaciones son complementarias y se generan de forma independiente de `src/figures.py`. La proximidad angular con un cúmulo catalogado no implica necesariamente que exista una asociación física.
 
 ## Decisiones de diseño
 
