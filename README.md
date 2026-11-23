@@ -16,7 +16,7 @@ Entrega: informe de 5–6 páginas, presentación de 8 minutos y este repositori
 | Dataset | `UniverseTBD/mmu_gaia_gaia` (Hugging Face) |
 | Partición | `Norder=4/Dir=0`: 263 archivos Parquet |
 | Tamaño | 1.800.261.960 B ≈ 1,68 GiB (verificado contra la API de HF) |
-| Filas | **1.336.195** medidas, con `object_id` único (0 duplicadas); ver `docs/hallazgos.md` H-02 |
+| Filas | **1.336.195** medidas, con `object_id` único (0 duplicadas) |
 | Columnas usadas | `object_id`, `ra`, `dec`, `astrometry.parallax`, `astrometry.parallax_error`, `astrometry.pmra`, `astrometry.pmra_error`, `astrometry.pmdec`, `astrometry.pmdec_error`, `photometry.phot_g_mean_mag`, `photometry.bp_rp` |
 | Columna derivada | `source_tile` = `Npix` del nombre de archivo (baldosa HEALPix de origen) |
 
@@ -31,18 +31,18 @@ orden, baldosa más pequeña. `Dir` es solo una carpeta para agrupar archivos.
 
 ## Hallazgos
 
-Lo verificado sobre el dataset y el clúster vive en [`docs/hallazgos.md`](docs/hallazgos.md),
-con el número medido, su origen y su implicancia para el informe. Titulares:
+Lo verificado sobre el dataset y el clúster, con el número medido y su origen en
+`results/`. Titulares:
 
-- 1.336.195 filas, cero duplicados; el conteo previo (1.411.004) no se reproduce (H-02, H-11).
+- 1.336.195 filas, cero duplicados; el conteo previo (1.411.004) no se reproduce.
 - 7.161 filas tienen `NaN` —no `null`— en los seis campos astrométricos, y `NaN > 0`
-  es verdadero en Spark: sin filtrar `isnan()` se envenenan las agregaciones (H-03).
-- El máximo real por celda de 0,25° es 847 estrellas, no las 5.738 del análisis previo (H-05).
-- La partición cubre 8,6 % del cielo, no todo el cielo (H-06).
+  es verdadero en Spark: sin filtrar `isnan()` se envenenan las agregaciones.
+- El máximo real por celda de 0,25° es 847 estrellas, no las 5.738 del análisis previo.
+- La partición cubre 8,6 % del cielo, no todo el cielo.
 - Dos detectores independientes dan 16 y 3 candidatos; sus dispersiones internas
-  (2,3–15,2 km/s) indican asociaciones, no cúmulos ligados (H-13, H-14).
+  (2,3–15,2 km/s) indican asociaciones, no cúmulos ligados.
 - Con `eps = 0,8` los mismos datos dan 4 núcleos fríos (1,3–3,8 km/s) inmersos en esas
-  asociaciones: hay estructura ligada, pero es minoritaria (H-19).
+  asociaciones: hay estructura ligada, pero es minoritaria.
 
 ## Entorno del clúster
 
@@ -85,7 +85,6 @@ scripts/revisar_cobertura.py inspección de la cobertura HEALPix descargada
 scripts/validar_footprint.py valida la posición de los candidatos respecto al footprint
 tests/test_determinism.py regresión: la salida no depende del orden de entrada
 tests/pyspark_stub/       stub mínimo de pyspark para correr el test sin Spark
-docs/hallazgos.md         bitácora de hallazgos con evidencia y pendientes
 docs/catalogo_hunt_reffert.csv catálogo de cúmulos de Hunt & Reffert (2023)
 results/staging/          resúmenes y evidencia del staging
 results/clusters/         tablas de candidatos, una por método
@@ -203,7 +202,7 @@ HDFS: gaia_clusters_<tag>.parquet, gaia_clusters_celdas_<tag>.parquet, ...
 La corrida sin `--tag` escribe en `results/clusters/`, que es la tabla que cita el informe.
 
 **Cuidado con los rótulos.** El plan de Spark es perezoso: la lectura del Parquet ocurre
-dentro del primer job que la necesita, no donde el código la declara (H-09). Los tiempos por
+dentro del primer job que la necesita, no donde el código la declara. Los tiempos por
 etapa que imprimen los scripts son de los jobs de Spark, no de las líneas de Python.
 
 ## Figuras
@@ -230,10 +229,10 @@ Las figuras generadas son:
 |---|---|
 | `fig_01_embudo.png` | del total de la partición a los candidatos, con el corte de calidad |
 | `fig_02_cielo.png` | posición de los 16 + 3 candidatos, con zoom a las tres regiones |
-| `fig_03_eps.png` | miembros vs dispersión para `eps` = 0,8 / 1,0 / 1,2 (H-19) |
+| `fig_03_eps.png` | miembros vs dispersión para `eps` = 0,8 / 1,0 / 1,2 |
 | `fig_04_distancias.png` | distancia con banda p16–p84 frente a dispersión interna |
 | `fig_05_movimiento.png` | plano de movimiento propio de los grupos |
-| `fig_06_celdas.png` | histograma de conteos por celda y umbral p99 (H-21) |
+| `fig_06_celdas.png` | histograma de conteos por celda y umbral p99 |
 | `fig_07_tiempos.png` | costo por variante |
 | `fig_08_via_lactea.png` | Candidatos y cobertura Gaia sobre una panorámica de la Vía Láctea. |
 
@@ -261,7 +260,7 @@ Estas visualizaciones son complementarias y se generan de forma independiente de
 - **NaN no es null.** Los faltantes astrométricos vienen como `NaN` y Spark los deja
   pasar por `isNotNull()` y por `parallax > 0`. `src/stage.py` cuenta nulos y NaN por
   columna antes de limpiar y convierte `NaN → null` en las columnas float (magnitud del
-  problema en H-03: 7.161 filas).
+  problema: 7.161 filas).
 - **`source_tile`.** Se conserva la baldosa de origen de cada estrella para poder
   auditar las celdas más densas (¿cuántas filas tiene esa baldosa?) y detectar
   duplicados entre archivos.
@@ -297,18 +296,18 @@ Estas visualizaciones son complementarias y se generan de forma independiente de
 - [x] Staging (2026-11-14): descarga, PUT a HDFS con replicación 1, unificación
       distribuida en YARN con `source_tile` y los 3 errores astrométricos, contabilidad
       de nulos/NaN y test de duplicados y celdas por baldosa. Resultado en
-      `results/staging/stage_summary.json`; lectura en `docs/hallazgos.md`.
+      `results/staging/stage_summary.json`.
 - [x] Detección de candidatos (2026-11-15): dos métodos independientes sobre el mismo
       Parquet — DBSCAN 5D por baldosa (`src/clusters_dbscan.py`) y celdas de área
       ~constante con pico cinemático (`src/clusters_celdas.py`). Tablas en
       `results/clusters/clusters_dbscan.csv` y `results/clusters/clusters_celdas.csv`.
 - [x] Experimentos (2026-11-22): 6 variantes con `rc = 0`, cada una en su carpeta, tiempos
       en `results/experiments/timings.json`. Sensibilidad de `eps` (4 / 16 / 24 candidatos),
-      de `kin_rel` (3 → 4) y del SNR (3 → 6) en H-19, H-16 y H-20.
+      de `kin_rel` (3 → 4) y del SNR (3 → 6).
 - [x] Reproducibilidad (2026-11-22): orden de entrada fijo en DBSCAN; las dos corridas
       canónicas son idénticas byte a byte y `tests/test_determinism.py` lo verifica sin
-      Spark (H-22).
-- [x] Banda de paralaje calculada sobre los miembros del grupo, no sobre el campo (H-23).
+      Spark.
+- [x] Banda de paralaje calculada sobre los miembros del grupo, no sobre el campo.
 - [x] Figuras (2026-11-22): 8 figuras principales generadas mediante
       `src/figures.py`, incluyendo la distribución de candidatos y la
       cobertura Gaia sobre la panorámica de la Vía Láctea. Se incorpora
@@ -326,12 +325,12 @@ Estas visualizaciones son complementarias y se generan de forma independiente de
   son tiras muy alargadas en RA: el "vecino" de una celda no es un vecino físico
   simétrico, y la fusión de celdas contiguas lo hereda.
 - El umbral de densidad es un cuantil fijo (percentil 99 ≈ 1 % de las celdas no vacías),
-  no un contraste adaptativo: el número de candidatos depende de la resolución (H-21).
+  no un contraste adaptativo: el número de candidatos depende de la resolución.
 - `eps = 1,0` no detecta el grupo ligado de 237 pc ni los 4 núcleos fríos que aparecen con
   `eps = 0,8`, y `eps = 1,2` funde cuatro poblaciones en un solo grupo de 569 miembros
-  (H-19). El valor elegido es un compromiso declarado, no un óptimo.
+  El valor elegido es un compromiso declarado, no un óptimo.
 - El filtro `SNR ≥ 10` descarta el 32 % de las filas; con `SNR ≥ 5` los dos métodos
-  dejan de coincidir en paralaje (H-20).
+  dejan de coincidir en paralaje.
 - El criterio cinemático absoluto (dispersión de movimiento propio < 3 mas/año) depende
   de la distancia y del entorno; el método por celdas usa en su lugar un pico cinemático
   relativo a la mediana de las celdas densas.

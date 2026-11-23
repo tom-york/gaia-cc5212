@@ -60,7 +60,7 @@ def dbscan(X, eps, min_pts, chunk=500):
 def find_clusters(tile, pts, p):
     """Corre en los ejecutores: recibe todas las estrellas de una baldosa."""
     a = np.array(pts, dtype=np.float64)  # cols: oid, ra, dec, plx, pmra, pmdec, g
-    # Orden determinista (H-22): groupByKey no fija el orden de las filas dentro de
+    # Orden determinista: groupByKey no fija el orden de las filas dentro de
     # una baldosa, y de ese orden dependen los promedios, el recorte por magnitud y
     # el flood-fill de DBSCAN. Sin fijarlo, dos corridas con la misma config
     # devuelven grupos distintos.
@@ -93,7 +93,7 @@ def find_clusters(tile, pts, p):
         rad = float(np.median(np.hypot(x[m] - x[m].mean(), y[m] - y[m].mean())))
         # La banda de paralaje sale de las estrellas del grupo. Calcularla sobre una
         # vecindad relajada alrededor del centro mezcla campo y sesga la mediana hacia
-        # paralajes mayores, o sea hacia distancias menores (H-25).
+        # paralajes mayores, o sea hacia distancias menores.
         q16, q50, q84 = np.percentile(a[m, 3], [16, 50, 84])
         out.append((
             int(tile), n,

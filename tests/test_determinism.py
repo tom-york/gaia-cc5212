@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regresión de determinismo de clusters_dbscan.py (H-22).
+"""Regresión de determinismo de clusters_dbscan.py.
 
 groupByKey no garantiza el orden de las filas dentro de una baldosa y flatMap no
 garantiza el orden de los grupos que llegan al driver. De esos órdenes dependían
