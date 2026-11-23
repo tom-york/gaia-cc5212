@@ -226,15 +226,15 @@ python3 src/figures.py --only eps,cielo
 
 Las figuras generadas son:
 
-| Archivo | Descripción |
+| Archivo | Qué muestra |
 |---|---|
-| `fig_01_embudo.png` | Resumen del proceso de selección de datos. |
-| `fig_02_cielo.png` | Distribución espacial de los candidatos. |
-| `fig_03_astrometria.png` | Distribución de parámetros astrométricos. |
-| `fig_04_hr.png` | Diagrama color-magnitud de los candidatos. |
-| `fig_05_multiplicidad.png` | Análisis de multiplicidad de candidatos. |
-| `fig_06_experimentos.png` | Comparación de los experimentos realizados. |
-| `fig_07_tiempos.png` | Comparación de tiempos de ejecución. |
+| `fig_01_embudo.png` | del total de la partición a los candidatos, con el corte de calidad |
+| `fig_02_cielo.png` | posición de los 16 + 3 candidatos, con zoom a las tres regiones |
+| `fig_03_eps.png` | miembros vs dispersión para `eps` = 0,8 / 1,0 / 1,2 (H-19) |
+| `fig_04_distancias.png` | distancia con banda p16–p84 frente a dispersión interna |
+| `fig_05_movimiento.png` | plano de movimiento propio de los grupos |
+| `fig_06_celdas.png` | histograma de conteos por celda y umbral p99 (H-21) |
+| `fig_07_tiempos.png` | costo por variante |
 | `fig_08_via_lactea.png` | Candidatos y cobertura Gaia sobre una panorámica de la Vía Láctea. |
 
 ### Análisis complementario: catálogo de Hunt & Reffert (2023)
