@@ -24,6 +24,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 
+from astropy.coordinates import SkyCoord
+import astropy.units as u
+import healpy as hp
+from matplotlib.patches import Ellipse
+from matplotlib.collections import PolyCollection
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import dump_json, load_config, repo_root, results_path  # noqa: E402
 
@@ -197,6 +203,238 @@ def fig_cielo(d, out):
     plt.close(fig)
     return (path, "posición de los 16 + 3 candidatos, con zoom a las tres regiones",
             "results/clusters/clusters_dbscan.csv, clusters_celdas.csv")
+
+def fig_via_lactea(d, out):
+    """Candidatos y cobertura Gaia sobre la panorámica ESO."""
+
+    imagen_path = os.path.join(repo_root(), "assets", "eso0932a.jpg")
+
+    if not os.path.exists(imagen_path):
+        print(f"No se encuentra la imagen: {imagen_path}")
+        return None
+
+    imagen = plt.imread(imagen_path)
+
+    # Conversión RA/Dec -> coordenadas galácticas
+    def coordenadas_galacticas(filas):
+        ra = np.array([flota(r, "ra") for r in filas])
+        dec = np.array([flota(r, "dec") for r in filas])
+
+        coords = SkyCoord(
+            ra=ra * u.deg,
+            dec=dec * u.deg,
+            frame="icrs"
+        ).galactic
+
+        x = (180 - coords.l.deg) % 360
+        y = coords.b.deg
+
+        return x, y, coords
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    ax.set_facecolor("black")
+
+    # Elipse de recorte
+    clip = Ellipse(
+        (180, 0),
+        width=360,
+        height=180,
+        transform=ax.transData
+    )
+
+    # Fotografía ESO
+    fondo = ax.imshow(
+        imagen,
+        extent=(0, 360, -90, 90),
+        aspect="auto",
+        origin="upper",
+        alpha=0.90,
+        zorder=0
+    )
+    fondo.set_clip_path(clip)
+
+    # ---------------------------------
+    # Cobertura Gaia: 263 píxeles HEALPix
+    # ---------------------------------
+
+    archivos = pd.read_csv(
+        os.path.join(repo_root(), "results", "staging", "files.tsv"),
+        sep="\t",
+        header=None,
+        names=["archivo", "dato"]
+    )
+
+    pixeles = (
+        archivos["archivo"]
+        .str.extract(r"Npix=(\d+)")[0]
+        .astype(int)
+        .to_numpy()
+    )
+
+    nside = 16
+    poligonos = []
+
+    for pix in pixeles:
+        vertices = hp.boundaries(
+            nside,
+            pix,
+            step=5,
+            nest=True
+        )
+
+        xyz = vertices.T
+
+        theta, phi = hp.vec2ang(xyz)
+
+        ra = np.degrees(phi)
+        dec = 90 - np.degrees(theta)
+
+        coords = SkyCoord(
+            ra=ra * u.deg,
+            dec=dec * u.deg,
+            frame="icrs"
+        ).galactic
+
+        x = (180 - coords.l.deg) % 360
+        y = coords.b.deg
+
+        # Evitar polígonos que crucen el borde horizontal
+        if np.ptp(x) > 180:
+            continue
+
+        poligonos.append(np.column_stack([x, y]))
+
+    cobertura = PolyCollection(
+        poligonos,
+        facecolor="#54B8D8",
+        edgecolor="none",
+        alpha=0.20,
+        label="Cobertura Gaia (263 baldosas)",
+        zorder=2
+    )
+
+    ax.add_collection(cobertura)
+    cobertura.set_clip_path(clip)
+
+    # ---------------------------------
+    # Candidatos DBSCAN
+    # ---------------------------------
+
+    x_db, y_db, coords_db = coordenadas_galacticas(d["dbscan"])
+
+    db = ax.scatter(
+        x_db, y_db,
+        marker="*",
+        s=38,
+        color=AZUL,
+        edgecolor="white",
+        linewidth=0.45,
+        label="DBSCAN",
+        zorder=4
+    )
+    db.set_clip_path(clip)
+
+    # ---------------------------------
+    # Método de celdas
+    # ---------------------------------
+
+    x_ce, y_ce, coords_ce = coordenadas_galacticas(d["celdas"])
+
+    ce = ax.scatter(
+        x_ce, y_ce,
+        marker="^",
+        s=32,
+        color=NARANJA,
+        edgecolor="white",
+        linewidth=0.45,
+        label="Método de celdas",
+        zorder=5
+    )
+    ce.set_clip_path(clip)
+
+    # ---------------------------------
+    # Coincidencias entre métodos
+    # ---------------------------------
+
+    separaciones = coords_db[:, None].separation(coords_ce[None, :])
+    coincidentes = (separaciones < 0.5 * u.deg).any(axis=1)
+
+    if coincidentes.any():
+        anillos = ax.scatter(
+            x_db[coincidentes],
+            y_db[coincidentes],
+            marker="o",
+            s=85,
+            facecolors="none",
+            edgecolors="white",
+            linewidths=1.0,
+            label="Candidatos coincidentes",
+            zorder=6
+        )
+        anillos.set_clip_path(clip)
+
+    # Borde ovalado
+    borde = Ellipse(
+        (180, 0),
+        width=360,
+        height=180,
+        facecolor="none",
+        edgecolor="white",
+        linewidth=1.0,
+        zorder=7
+    )
+    ax.add_patch(borde)
+
+    ax.set_xlim(0, 360)
+    ax.set_ylim(-90, 90)
+    ax.set_aspect("equal")
+
+    ax.set_xlabel("Longitud galáctica proyectada [°]", color="white")
+    ax.set_ylabel("Latitud galáctica [°]", color="white")
+
+    ax.set_title(
+        "Candidatos a cúmulos estelares y cobertura Gaia",
+        color="white",
+        pad=12
+    )
+
+    ax.tick_params(colors="white")
+
+    ax.legend(
+        loc="upper right",
+        facecolor="black",
+        edgecolor="white",
+        labelcolor="white",
+        framealpha=0.85,
+        fontsize=8
+    )
+
+    fig.text(
+        0.99, 0.015,
+        "Background: ESO/S. Brunier | Gaia footprint: schematic projection",
+        ha="right",
+        fontsize=7,
+        color="white"
+    )
+
+    fig.tight_layout()
+
+    path = os.path.join(out, "fig_08_via_lactea.png")
+
+    fig.savefig(
+        path,
+        dpi=200,
+        facecolor="black",
+        bbox_inches="tight"
+    )
+
+    plt.close(fig)
+
+    return (
+        path,
+        "Candidatos y cobertura Gaia sobre panorámica de la Vía Láctea",
+        "clusters_dbscan.csv, clusters_celdas.csv, files.tsv; imagen ESO/S. Brunier"
 
 
 def fig_eps(d, out):
