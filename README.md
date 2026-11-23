@@ -59,16 +59,20 @@ con el número medido, su origen y su implicancia para el informe. Titulares:
 | Logs YARN | **agregación deshabilitada** → diagnóstico por stdout en `--deploy-mode client` |
 | Raíz HDFS del proyecto | `/data/2026/uhadoop/teatime/gaia` |
 
+**Análisis complementario local:** los scripts de comparación y visualización del catálogo utilizan `pandas`, `numpy`, `astropy`, `matplotlib` y `jinja2`. Las herramientas de validación de cobertura utilizan además `healpy`. Estas dependencias deben estar instaladas en el entorno Python local desde el que se ejecutan los scripts.
+
 ## Estructura
 
-```
+## Estructura
+
+```text
 config.json               parámetros y rutas (única fuente de verdad)
 src/common.py             config, rutas, logging, saneamiento de tipos
 src/download.py           descarga Norder=4/Dir=0 a raw/ (solo requests)
 src/stage.py              unificación a Parquet de 12 columnas en HDFS (YARN)
 src/clusters_dbscan.py    DBSCAN 5D por baldosa (numpy en los ejecutores)
 src/clusters_celdas.py    celdas de área ~constante + pico cinemático (Spark SQL)
-src/figures.py            figuras del informe desde las tablas (sin Spark)
+src/figures.py            figuras principales del informe desde las tablas
 scripts/yarn_env.sh       flags de spark-submit validados en el clúster
 scripts/stage_data.sh     preflight + descarga + unificación + HDFS
 scripts/run_clusters.sh   corre cualquiera de los dos detectores (--method)
@@ -76,13 +80,22 @@ scripts/make_pylibs.sh    genera pylibs.zip con numpy (no versionado)
 scripts/inspect_schema.py imprime el esquema del Parquet unificado
 scripts/run_experiments.sh barrido de configuraciones con tiempos
 scripts/compare_clusters.py compara dos tablas por conjunto (no por orden)
+scripts/crossmatch_catalogo.py compara candidatos con Hunt & Reffert (2023)
+scripts/fig_comparacion_catalogo.py visualización del crossmatch
+scripts/fig_comparacion_posiciones.py distribución de candidatos y cúmulos conocidos
+scripts/revisar_cobertura.py inspección de la cobertura HEALPix descargada
+scripts/validar_footprint.py valida la posición de los candidatos respecto al footprint
 tests/test_determinism.py regresión: la salida no depende del orden de entrada
 tests/pyspark_stub/       stub mínimo de pyspark para correr el test sin Spark
 docs/hallazgos.md         bitácora de hallazgos con evidencia y pendientes
+docs/catalogo_hunt_reffert.csv catálogo de cúmulos de Hunt & Reffert (2023)
 results/staging/          resúmenes y evidencia del staging
 results/clusters/         tablas de candidatos, una por método
 results/experiments/      configs, timings y una carpeta por variante
-results/figures/          figuras del informe
+results/figures/          figuras principales y complementarias
+results/comparacion_catalogo.csv resultados detallados del crossmatch
+results/tabla_crossmatch.csv tabla resumida del crossmatch
+results/tabla_crossmatch.tex tabla LaTeX del crossmatch
 raw/                      parquet crudos (no versionado)
 ```
 
@@ -299,7 +312,8 @@ Estas visualizaciones son complementarias y se generan de forma independiente de
 - [x] Banda de paralaje calculada sobre los miembros del grupo, no sobre el campo (H-23).
 - [x] Figuras (2026-11-22): 7 paneles desde las tablas versionadas, en
       `results/figures/` con su manifiesto.
-- [ ] Validación: M7, SIMBAD, Hunt & Reffert (2023).
+- [x] Comparación con catálogo externo (2026-11-22): crossmatch posicional y astrométrico con Hunt & Reffert (2023). Se calcularon separaciones angulares y diferencias de paralaje y movimiento propio para los candidatos de ambos métodos.
+- [ ] Validación adicional: contraste con M7 y SIMBAD; evaluación de posibles asociaciones físicas con cúmulos catalogados.
 
 ## Limitaciones (van al informe)
 
