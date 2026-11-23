@@ -63,8 +63,6 @@ con el número medido, su origen y su implicancia para el informe. Titulares:
 
 ## Estructura
 
-## Estructura
-
 ```text
 config.json               parámetros y rutas (única fuente de verdad)
 src/common.py             config, rutas, logging, saneamiento de tipos
@@ -96,6 +94,7 @@ results/figures/          figuras principales y complementarias
 results/comparacion_catalogo.csv resultados detallados del crossmatch
 results/tabla_crossmatch.csv tabla resumida del crossmatch
 results/tabla_crossmatch.tex tabla LaTeX del crossmatch
+assets/eso0932a.jpg       imágenes auxiliares panorámica ESO
 raw/                      parquet crudos (no versionado)
 ```
 
@@ -209,9 +208,9 @@ etapa que imprimen los scripts son de los jobs de Spark, no de las líneas de Py
 
 ## Figuras
 
-El módulo `src/figures.py` genera las ocho figuras principales del proyecto a partir de los resultados tabulares disponibles en el repositorio. No requiere ejecutar Spark ni volver a procesar los datos Parquet originales.
+El módulo `src/figures.py` genera las ocho figuras principales del proyecto a partir de los resultados tabulares y archivos auxiliares versionados en el repositorio. No requiere ejecutar Spark ni volver a procesar los datos Parquet originales.
 
-Cada figura registra su descripción y fuentes de datos en `results/figures/figures.json`. La figura de contexto galáctico utiliza adicionalmente la panorámica de ESO (`assets/eso0932a.jpg`) y los archivos de cobertura Gaia (`results/staging/files.tsv`).
+Cada figura registra su descripción y fuentes de datos en `results/figures/figures.json`. La figura de contexto galáctico utiliza adicionalmente la panorámica de ESO (`assets/eso0932a.jpg`) y el archivo de cobertura Gaia (`results/staging/files.tsv`).
 
 Para generar todas las figuras:
 
@@ -310,8 +309,11 @@ Estas visualizaciones son complementarias y se generan de forma independiente de
       canónicas son idénticas byte a byte y `tests/test_determinism.py` lo verifica sin
       Spark (H-22).
 - [x] Banda de paralaje calculada sobre los miembros del grupo, no sobre el campo (H-23).
-- [x] Figuras (2026-11-22): 7 paneles desde las tablas versionadas, en
-      `results/figures/` con su manifiesto.
+- [x] Figuras (2026-11-22): 8 figuras principales generadas mediante
+      `src/figures.py`, incluyendo la distribución de candidatos y la
+      cobertura Gaia sobre la panorámica de la Vía Láctea. Se incorpora
+      además un análisis complementario del catálogo Hunt & Reffert (2023),
+      con dos visualizaciones y tablas de comparación.
 - [x] Comparación con catálogo externo (2026-11-22): crossmatch posicional y astrométrico con Hunt & Reffert (2023). Se calcularon separaciones angulares y diferencias de paralaje y movimiento propio para los candidatos de ambos métodos.
 - [ ] Validación adicional: contraste con M7 y SIMBAD; evaluación de posibles asociaciones físicas con cúmulos catalogados.
 
